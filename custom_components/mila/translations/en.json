@@ -1,0 +1,21 @@
+{
+    "config": {
+        "error": {
+            "cannot_connect": "Cannot connect",
+            "invalid_auth": "Invalid login",
+            "unknown": "Unknown error occured"
+          },
+        "abort": {
+            "already_configured": "Account already configured"
+        },
+        "step": {
+            "user": {
+                "data": {
+                    "password": "Password",
+                    "email": "Email"
+                }
+            }
+        }
+    },
+    "title": "Mila"
+}
