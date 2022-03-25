@@ -2,10 +2,13 @@
   "domain": "mila",
   "name": "Mila Cares",
   "config_flow": true,
-  "documentation": "https://www.home-assistant.io/integrations/",
+  "documentation": "https://github.com/sanghviharshit/ha-mila",
   "requirements": [],
   "codeowners": ["@sanghviharshit"],
   "version": "0.0.1",
-  "iot_class": "cloud_polling"
+  "iot_class": "cloud_polling",
+  "dependencies": [],
+  "after_dependencies": [],
+  "issue_tracker": "https://github.com/sanghviharshit/ha-mila/issues"
 }
 
