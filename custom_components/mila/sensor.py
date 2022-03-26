@@ -95,7 +95,7 @@ SENSOR_TYPES = {
     "aqi": [
         "AQI",
         SensorDeviceClass.AQI,
-        None,
+        "AQI",
         SensorStateClass.MEASUREMENT,
     ],
     "pm_1_0": [
