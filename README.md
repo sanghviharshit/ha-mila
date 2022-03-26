@@ -12,7 +12,6 @@ This integration leverages Mila's API to collects metrics and controls the air p
 
 ## Installation
 ### HACS Install
-> TODO: Add this to HACS default repository list. Until then, you can manually add this github repository to HACS as a custom repository.
 
 Go to HACS (Community). Select *Integrations* and click the + to add a new integration repository. Search for `HA-mila` to find this repository, select it and install.
 
@@ -33,9 +32,9 @@ The integration will detect all air purifier devices registered to your account.
 ## Integration
 
 ### Google Assistant, Alexa, Homekit
-> Note: This is not tested yet
+> Note: Mila has official support for Google Home and Alexa. See [support](https://milacares.com/support.html#amazon-alexa)
 
-Since Mila currently doesn't support any of these platforms, you can easily expose the relevant entities through Home Assistant's integration for Google Assistant, Alexa or Homekit.
+You can easily expose the relevant entities through Home Assistant's integration for Google Assistant, Alexa or Homekit.
 e.g. For Google Assistant - See [configured manually](https://www.home-assistant.io/integrations/google_assistant/) or via [Nabu Casa](https://www.nabucasa.com/config/google_assistant/) - you can expose a Fan entity and control it via Google.
 
 For example, you can say:
@@ -43,7 +42,16 @@ For example, you can say:
 *"Hey Google, stop (device name)."*
 *"Hey Google, turn off (device name)."*
 
-
 ## Mila API
 Mila has a REST API that their mobile apps run on. Here is a scratchpad that interacts with some of these API endpoints - [Gist](https://gist.github.com/sanghviharshit/913d14b225399e0fa4211b3e785671aa)
 
+# TODO List
+
+* oAuth token expiry logic in config flow
+* Better exception handling
+* config flow handler for options (save api response, timeout, scan interval)
+* Preset Modes for fan
+* Map app converts percentage to fan RPM non-linearly. Add this conversion logic to API
+* Add some missing binary sensors
+* Enable user input for night time start/end
+* Add extra attributes to fan entity (whitenoise mode, sleep mode, etc.)
