@@ -99,22 +99,20 @@ class MilaAPI(object):
                 )
         except Exception as err:
             _LOGGER.info(err)
-            if (resp.status == 401):
-                self.refresh_access_token()
-                with async_timeout.timeout(self.timeout):
-                    try:
-                        resp = await self.session.request(
-                            method,
-                            url,
-                            headers=headers,
-                            allow_redirects=allow_redirects,
-                            raise_for_status=True,
-                            **kwargs,
-                        )
-                    except Exception as err:
-                        raise MilaException(resp.status, f"Error with {method} {url}") from err
-            else:
-                raise MilaException(resp.status, f"Error with {method} {url}")
+            # TODO: handle 401 properly with oauth
+            self.refresh_access_token()
+            with async_timeout.timeout(self.timeout):
+                try:
+                    resp = await self.session.request(
+                        method,
+                        url,
+                        headers=headers,
+                        allow_redirects=allow_redirects,
+                        raise_for_status=True,
+                        **kwargs,
+                    )
+                except Exception as err:
+                    raise MilaException(500, f"Error with {method} {url}") from err
 
         if json_response:
             response = await resp.json()
