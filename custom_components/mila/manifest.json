@@ -7,7 +7,7 @@
   "codeowners": ["@sanghviharshit"],
   "version": "0.0.1",
   "iot_class": "cloud_polling",
-  "dependencies": [],
+  "dependencies": ["http"],
   "after_dependencies": [],
   "issue_tracker": "https://github.com/sanghviharshit/ha-mila/issues"
 }
