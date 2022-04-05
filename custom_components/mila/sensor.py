@@ -188,7 +188,7 @@ class MilaSensor(SensorEntity, MilaEntity):
     @property
     def state_class(self) -> SensorStateClass:
         """Return the state class of this entity, if any."""
-        return SENSOR_TYPES[self.variable][2]
+        return SENSOR_TYPES[self.variable][3]
 
     @property
     def state(self) -> StateType:
