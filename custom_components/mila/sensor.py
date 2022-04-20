@@ -191,13 +191,12 @@ class MilaSensor(SensorEntity, MilaEntity):
         return SENSOR_TYPES[self.variable][3]
 
     @property
-    def state(self) -> StateType:
+    def native_value(self) -> StateType:
         """Return the state of the entity."""
         return getattr(self.device, self.variable)
 
-    @final
     @property
-    def unit_of_measurement(self) -> str:
+    def native_unit_of_measurement(self) -> str:
         """Return the unit of measurement of the entity, after unit conversion."""
         return SENSOR_TYPES[self.variable][2]
 
