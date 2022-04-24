@@ -23,7 +23,7 @@ _LOGGER = logging.getLogger(__name__)
 BASIC_TYPES = {
     # TODO: Move these to binary sensors
     # "quiet_enabled": [
-    #     "Quite Enabled",
+    #     "Quiet Enabled",
     #     None,
     #     None,
     # ],
