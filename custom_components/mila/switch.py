@@ -31,7 +31,7 @@ ACCOUNT_SWITCH_TYPES = {
         "Quarantine",
     ],
     "quiet_zone": [
-        "Quite Mode",
+        "Quiet Mode",
     ],
 
 }
