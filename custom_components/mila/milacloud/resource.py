@@ -10,14 +10,12 @@ class Resource(object):
 
     @property
     def id(self):
-        if self.is_device:
-            return self.device["id"]
-        return None
+        return self.device["id"] if self.is_device else None
 
     @property
     def is_account(self):
-        return bool(self.__class__.__name__ == "Account")
+        return self.__class__.__name__ == "Account"
 
     @property
     def is_device(self):
-        return bool(self.__class__.__name__ == "Device")
+        return self.__class__.__name__ == "Device"

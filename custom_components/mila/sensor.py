@@ -1,4 +1,5 @@
 """Support for Mila sensor entities."""
+
 from collections.abc import Mapping
 import logging
 from typing import Any, final
@@ -156,7 +157,7 @@ SENSOR_TYPES = {
 }
 
 
-SENSOR_TYPES = {**BASIC_TYPES, **SENSOR_TYPES}
+SENSOR_TYPES = BASIC_TYPES | SENSOR_TYPES
 
 
 async def async_setup_entry(hass, entry, async_add_entities):

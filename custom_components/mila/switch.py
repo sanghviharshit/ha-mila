@@ -1,4 +1,5 @@
 """Support for Mila switch entities."""
+
 from collections.abc import Mapping
 import logging
 from typing import Any
@@ -41,7 +42,7 @@ DEVICE_SWITCH_TYPES = {
     ],
 }
 
-SWITCH_TYPES = {**ACCOUNT_SWITCH_TYPES, **DEVICE_SWITCH_TYPES}
+SWITCH_TYPES = ACCOUNT_SWITCH_TYPES | DEVICE_SWITCH_TYPES
 
 
 async def async_setup_entry(hass, entry, async_add_entities):
