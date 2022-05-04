@@ -117,7 +117,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
         except MilaException as exception:
             raise UpdateFailed(
                 f"Error communicating with API: {exception.error_message}"
-            )
+            ) from exception
 
     coordinator = DataUpdateCoordinator(
         hass,
@@ -225,8 +225,7 @@ class MilaEntity(CoordinatorEntity):
         Implemented by platform classes. Convention for attribute names
         is lowercase snake_case.
         """
-        attrs = {}
-        return attrs
+        return {}
 
     @property
     def attribution(self) -> str:

@@ -95,22 +95,20 @@ class MilaAPI(object):
         data_key="data",
         json_response=True,
         allow_redirects=True,
-        extra_headers={},
+        extra_headers=None,
         auth_header=True,
     ) -> Dict:
-        if base_url:
-            url = f"{base_url}{path}"
-        else:
-            url = path
-
+        if extra_headers is None:
+            extra_headers = {}
+        url = f"{base_url}{path}" if base_url else path
         kwargs = {}
         if data:
             kwargs[data_key] = data
 
         headers = {}
         if auth_header:
-            headers = {"Authorization": "Bearer {}".format(self.access_token)}
-        headers.update(extra_headers)
+            headers = {"Authorization": f"Bearer {self.access_token}"}
+        headers |= extra_headers
 
         try:
             with async_timeout.timeout(self.timeout):
@@ -140,14 +138,10 @@ class MilaAPI(object):
                 except Exception as err:
                     raise MilaException(500, f"Error with {method} {url}") from err
 
-        if json_response:
-            response = await resp.json()
-            if response.get("data"):
-                return response.get("data")
-            else:
-                return response
-        else:
+        if not json_response:
             return resp
+        response = await resp.json()
+        return response.get("data") or response
 
     async def save_response(self, response, name="response"):
         if self.save_location and response:
@@ -223,8 +217,9 @@ class MilaAPI(object):
         """
         page = await resp.text()
         form_action = html.unescape(
-            re.search('<form\s+.*?\s+action="(.*?)"', page, re.DOTALL).group(1)
+            re.search('<form\s+.*?\s+action="(.*?)"', page, re.DOTALL)[1]
         )
+
         _LOGGER.info(f"Form Action URL: {form_action}")
 
         # Do the login (aka authenticate)
@@ -236,7 +231,10 @@ class MilaAPI(object):
             "post",
             path=form_action,
             base_url=None,
-            data={"username": self.username, "password": self.password,},
+            data={
+                "username": self.username,
+                "password": self.password,
+            },
             extra_headers={"Cookie": cookie},
             json_response=False,
             allow_redirects=False,
@@ -246,14 +244,14 @@ class MilaAPI(object):
         """
         As expected we are forwarded, let's get the redirect URL.
         """
-        _LOGGER.info("Response headers %s" % resp.headers)
+        _LOGGER.info(f"Response headers {resp.headers}")
         try:
             redirect = resp.headers["Location"]
             if not redirect.startswith(REDIRECT_URI):
                 _LOGGER.error("Redirect URI not found after login")
                 raise
         except Exception as err:
-            raise MilaException(401, f"No redirect URI found") from err
+            raise MilaException(401, "No redirect URI found") from err
 
         # Extract authorization code from redirect
         """
@@ -335,32 +333,32 @@ class MilaAPI(object):
 
     async def get_devices(self):
         # Appliances Meta
-        resp = await self.request("get", path="/appliances/meta",)
+        resp = await self.request(
+            "get",
+            path="/appliances/meta",
+        )
         return resp
 
     async def get_modes(self, device_id):
         # Appliance Meta
-        resp = await self.request("get", path=f"/appliance/{device_id}/config",)
+        resp = await self.request(
+            "get",
+            path=f"/appliance/{device_id}/config",
+        )
         return resp
 
     async def update(self):
         try:
-            account = {}
-            devices = list()
+            devices = []
             device_list = await self.get_devices()
             for d in device_list:
-                device = {}
-                device["device"] = d
-                device["modes"] = await self.get_modes(d["id"])
+                device = {"device": d, "modes": await self.get_modes(d["id"])}
                 device["sensors"] = await self.get_sensors_data(d["appliance_code"])
                 devices.append(device)
 
-            account["profile"] = {}
-            account["profile"]["data"] = await self.get_profile()
+            account = {"profile": {"data": await self.get_profile()}}
             account["profile"]["data"]["smart_modes"] = await self.get_smart_modes()
-            account["devices"] = {}
-            account["devices"]["data"] = devices
-
+            account["devices"] = {"data": devices}
             await self.save_response(response=account, name="update_data")
             self.data = Account(self, account)
         except MilaException:
@@ -402,7 +400,7 @@ class MilaAPI(object):
         }
         resp = await self.request(
             "post",
-            path="/appliance/" + appliance_code + "/command/control-mode/manual",
+            path=f"/appliance/{appliance_code}/command/control-mode/manual",
             base_url=BASE_URL,
             extra_headers=extra_headers,
             data=json.dumps(payload),
@@ -417,9 +415,10 @@ class MilaAPI(object):
             await asyncio.sleep(5)
             resp = await self.request(
                 "post",
-                path="/appliance/" + appliance_code + "/command/force-data",
+                path=f"/appliance/{appliance_code}/command/force-data",
                 base_url=BASE_URL,
             )
+
             _LOGGER.info(
                 f"({retry_count}/{max_retries}): Force Data - Current fan speed",
                 cur_fan_speed,
@@ -432,21 +431,23 @@ class MilaAPI(object):
         _LOGGER.info("Setting the fan mode to auto")
         resp = await self.request(
             "post",
-            path="/appliance/" + appliance_code + "/command/control-mode/auto",
+            path=f"/appliance/{appliance_code}/command/control-mode/auto",
             base_url=BASE_URL,
             data={"enable_display_int": -1},
         )
+
         await asyncio.sleep(10)
         resp = await self.request(
             "post",
-            path="/appliance/" + appliance_code + "/command/force-data",
+            path=f"/appliance/{appliance_code}/command/force-data",
             base_url=BASE_URL,
         )
+
         cur_fan_speed = resp["speed"]
 
     async def get_smart_modes(self):
         # Set Smart Mode to enabled/disable
-        return await self.request("get", path=f"/smart-modes", base_url=BASE_URL)
+        return await self.request("get", path="/smart-modes", base_url=BASE_URL)
 
     async def set_smart_mode(self, smart_mode, enabled):
         # Set Smart Mode to enabled/disable
@@ -466,9 +467,8 @@ class MilaAPI(object):
         payload = {"enabled": enabled, "night_enabled": enabled}
         return await self.request(
             "post",
-            path="/appliance/" + appliance_code + "/command/mute-toggle",
+            path=f"/appliance/{appliance_code}/command/mute-toggle",
             base_url=BASE_URL,
             data=json.dumps(payload),
             extra_headers={"Content-Type": "application/json"},
         )
-
