@@ -4,7 +4,6 @@ from .resource import Resource
 
 
 class Account(Resource):
-
     def __init__(self, api, data):
         super().__init__(api=api, device=None, data=data)
 
@@ -24,7 +23,13 @@ class Account(Resource):
         return devices
 
     def get_smart_mode(self, smart_mode):
-        return self.data.get("profile").get("data").get("smart_modes").get(smart_mode).get("is_enabled")
+        return (
+            self.data.get("profile")
+            .get("data")
+            .get("smart_modes")
+            .get(smart_mode)
+            .get("is_enabled")
+        )
 
     async def set_smart_mode(self, smartmode, value):
         return await self.api.set_smart_mode(smartmode, value)

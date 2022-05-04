@@ -1,8 +1,8 @@
 """Milacares API"""
 from .const import URL_ACCOUNT
 
-class Resource(object):
 
+class Resource(object):
     def __init__(self, api, device, data):
         self.api = api
         self.device = device

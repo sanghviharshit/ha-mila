@@ -4,11 +4,14 @@ from re import sub
 
 from .const import ERROR_TIME_FORMAT
 
+
 def snake_case(s):
-  return '_'.join(
-    sub('([A-Z][a-z]+)', r' \1',
-    sub('([A-Z]+)', r' \1',
-    s.replace('-', ' '))).split()).lower()
+    return "_".join(
+        sub(
+            "([A-Z][a-z]+)", r" \1", sub("([A-Z]+)", r" \1", s.replace("-", " "))
+        ).split()
+    ).lower()
+
 
 def format_data_usage(value):
     index = 0

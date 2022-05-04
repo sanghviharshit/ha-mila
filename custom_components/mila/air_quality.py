@@ -23,7 +23,7 @@ from .const import (
 _LOGGER = logging.getLogger(__name__)
 
 ATTR_PM_1_0 = "particulate_matter_1_0"
-ATTR_TVOC= "total_volatile_organic_compounds"
+ATTR_TVOC = "total_volatile_organic_compounds"
 ATTR_TEMP = "temperature"
 ATTR_HUM = "humidity"
 
@@ -105,6 +105,7 @@ class MilaAirMonitor(AirQualityEntity, MilaEntity):
                 data[attr] = value
 
         return data
+
 
 async def async_setup_entry(
     hass: HomeAssistant,

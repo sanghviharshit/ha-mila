@@ -96,7 +96,7 @@ ATTR_SLEEP_MODE = "sleep_mode"
 
 # Map attributes to properties of the state object
 AVAILABLE_ATTRIBUTES_AIRPURIFIER = {
-    ATTR_FAN_LEVEL: 'fan_level',
+    ATTR_FAN_LEVEL: "fan_level",
     ATTR_EXTRA_FEATURES: "extra_features",
 }
 
@@ -112,6 +112,7 @@ SERVICE_TO_METHOD = {
         "schema": SERVICE_SCHEMA_EXTRA_FEATURES,
     },
 }
+
 
 async def async_setup_entry(
     hass: HomeAssistant,
@@ -134,12 +135,15 @@ async def async_setup_entry(
 
     async_add_entities(await hass.async_add_job(get_entities), update_before_add=True)
 
+
 class MilaAirPurifier(MilaEntity, FanEntity):
     """Representation of a Mila device."""
 
     def __init__(self, coordinator, device_id):
         """Initialize the Mila Air Purifier device."""
-        super().__init__(coordinator, device_id=device_id, platform_name="Air Purifier Fan")
+        super().__init__(
+            coordinator, device_id=device_id, platform_name="Air Purifier Fan"
+        )
 
         self.device_id = device_id
         self._state_attrs = {}
@@ -206,15 +210,13 @@ class MilaAirPurifier(MilaEntity, FanEntity):
 
     # TODO: Convert the pecentage back and forth from how Mila converts RPM to %. (It's uneven distribution of RPM ranges to Percentage)
     async def async_set_percentage(self, percentage: int) -> None:
-        """Set the percentage of the fan.
-        """
+        """Set the percentage of the fan."""
         await self.async_set_preset_mode("manual")
         await self.device.set_fan_speed(percentage)
         await self.coordinator.async_request_refresh()
 
     async def async_set_preset_mode(self, preset_mode: str) -> None:
-        """Set the preset mode of the fan.
-        """
+        """Set the preset mode of the fan."""
         if preset_mode not in self.preset_modes:
             _LOGGER.warning("'%s'is not a valid preset mode", preset_mode)
             return

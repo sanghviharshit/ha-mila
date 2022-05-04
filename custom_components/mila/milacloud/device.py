@@ -8,7 +8,6 @@ STATE_PROFILES = "profiles"
 
 
 class Device(Resource):
-
     def __init__(self, api, account, data):
         super().__init__(api=api, device=None, data=data)
         self.account = account
@@ -35,16 +34,16 @@ class Device(Resource):
 
     @property
     def fan_speed(self):
-        return self.data.get("device").get("meta").get("speed") # TODO: set default
+        return self.data.get("device").get("meta").get("speed")  # TODO: set default
 
     async def set_fan_speed(self, value):
         return await self.api.set_mode_manual(self.appliance_code, value)
 
     @property
     def fan_mode(self):
-        return self.data.get("device").get("meta").get("mode") # TODO: set default
+        return self.data.get("device").get("meta").get("mode")  # TODO: set default
 
-    async def set_fan_mode(self, value, default_speed = 10):
+    async def set_fan_mode(self, value, default_speed=10):
         if value == "automagic":
             return await self.api.set_mode_auto(self.appliance_code)
         else:
@@ -121,6 +120,7 @@ class Device(Resource):
     @property
     def pm_1_0(self):
         return self.get_sensor_value("pm_1.0")
+
     @property
     def pm_2_5(self):
         return self.get_sensor_value("pm_2.5")

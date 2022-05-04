@@ -33,7 +33,6 @@ ACCOUNT_SWITCH_TYPES = {
     "quiet_zone": [
         "Quiet Mode",
     ],
-
 }
 
 DEVICE_SWITCH_TYPES = {
@@ -43,6 +42,7 @@ DEVICE_SWITCH_TYPES = {
 }
 
 SWITCH_TYPES = {**ACCOUNT_SWITCH_TYPES, **DEVICE_SWITCH_TYPES}
+
 
 async def async_setup_entry(hass, entry, async_add_entities):
     """Set up an Mila sensor entity based on a config entry."""
@@ -57,7 +57,9 @@ async def async_setup_entry(hass, entry, async_add_entities):
         for device in coordinator.data.devices:
             if device.id in conf_devices:
                 for variable in SWITCH_TYPES:
-                    if hasattr(coordinator.data, variable) or hasattr(device, variable): # Even though the switches are common for the entire account, adding them per device just the way Mila App shows
+                    if hasattr(coordinator.data, variable) or hasattr(
+                        device, variable
+                    ):  # Even though the switches are common for the entire account, adding them per device just the way Mila App shows
                         entities.append(MilaSwitch(coordinator, device.id, variable))
 
         return entities
@@ -70,7 +72,9 @@ class MilaSwitch(SwitchEntity, MilaEntity):
 
     def __init__(self, coordinator, device_id, variable):
         """Initialize device."""
-        super().__init__(coordinator, device_id=device_id, entity_name=SWITCH_TYPES[variable][0])
+        super().__init__(
+            coordinator, device_id=device_id, entity_name=SWITCH_TYPES[variable][0]
+        )
         self.device_id = device_id
         self.variable = variable
 

@@ -3,10 +3,17 @@ from collections.abc import Mapping
 import logging
 from typing import Any, final
 
-from homeassistant.components.sensor import SensorDeviceClass, SensorStateClass, SensorEntity
+from homeassistant.components.sensor import (
+    SensorDeviceClass,
+    SensorStateClass,
+    SensorEntity,
+)
 from homeassistant.const import (
-    PERCENTAGE, CONCENTRATION_MICROGRAMS_PER_CUBIC_METER, TEMP_CELSIUS,
-    CONCENTRATION_PARTS_PER_MILLION, CONCENTRATION_PARTS_PER_BILLION
+    PERCENTAGE,
+    CONCENTRATION_MICROGRAMS_PER_CUBIC_METER,
+    TEMP_CELSIUS,
+    CONCENTRATION_PARTS_PER_MILLION,
+    CONCENTRATION_PARTS_PER_BILLION,
 )
 from homeassistant.helpers.typing import StateType
 
@@ -151,6 +158,7 @@ SENSOR_TYPES = {
 
 SENSOR_TYPES = {**BASIC_TYPES, **SENSOR_TYPES}
 
+
 async def async_setup_entry(hass, entry, async_add_entities):
     """Set up an Mila sensor entity based on a config entry."""
     entry = hass.data[DOMAIN][entry.entry_id]
@@ -176,7 +184,9 @@ class MilaSensor(SensorEntity, MilaEntity):
 
     def __init__(self, coordinator, device_id, variable):
         """Initialize device."""
-        super().__init__(coordinator, device_id=device_id, entity_name=SENSOR_TYPES[variable][0])
+        super().__init__(
+            coordinator, device_id=device_id, entity_name=SENSOR_TYPES[variable][0]
+        )
         self.device_id = device_id
         self.variable = variable
 

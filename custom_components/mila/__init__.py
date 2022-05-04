@@ -8,7 +8,14 @@ from typing import Any
 import voluptuous as vol
 
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import ATTR_MODE, CONF_NAME, CONF_SCAN_INTERVAL,  CONF_EMAIL, CONF_PASSWORD, Platform
+from homeassistant.const import (
+    ATTR_MODE,
+    CONF_NAME,
+    CONF_SCAN_INTERVAL,
+    CONF_EMAIL,
+    CONF_PASSWORD,
+    Platform,
+)
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.entity import DeviceInfo
@@ -62,6 +69,7 @@ PLATFORMS = [Platform.AIR_QUALITY, Platform.SENSOR, Platform.FAN, Platform.SWITC
 
 _LOGGER = logging.getLogger(__name__)
 
+
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
     """Set up a config entry."""
     data = entry.data
@@ -72,10 +80,16 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
 
     device_registry = await hass.helpers.device_registry.async_get_registry()
     # entity_registry = await hass.helpers.entity_registry.async_get_registry()
-    for device_entry in hass.helpers.device_registry.async_entries_for_config_entry(device_registry, entry.entry_id):
-        if all([bool(resource_id not in conf_identifiers) for resource_id in device_entry.identifiers]):
+    for device_entry in hass.helpers.device_registry.async_entries_for_config_entry(
+        device_registry, entry.entry_id
+    ):
+        if all(
+            [
+                bool(resource_id not in conf_identifiers)
+                for resource_id in device_entry.identifiers
+            ]
+        ):
             device_registry.async_remove_device(device_entry.id)
-
 
     conf_save_responses = options.get(CONF_SAVE_RESPONSES, DEFAULT_SAVE_RESPONSES)
     conf_scan_interval = options.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL)
@@ -83,7 +97,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
 
     conf_save_location = DEFAULT_SAVE_LOCATION if conf_save_responses else None
 
-    api = MilaAPI(username=data[CONF_EMAIL], password=data[CONF_PASSWORD], timeout=conf_timeout, save_location=conf_save_location, access_token=data[CONF_USER_TOKEN], session=hass.helpers.aiohttp_client.async_get_clientsession())
+    api = MilaAPI(
+        username=data[CONF_EMAIL],
+        password=data[CONF_PASSWORD],
+        timeout=conf_timeout,
+        save_location=conf_save_location,
+        access_token=data[CONF_USER_TOKEN],
+        session=hass.helpers.aiohttp_client.async_get_clientsession(),
+    )
 
     async def async_update_data():
         """Fetch data from API endpoint.
@@ -94,7 +115,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
         try:
             return await api.update()
         except MilaException as exception:
-            raise UpdateFailed(f"Error communicating with API: {exception.error_message}")
+            raise UpdateFailed(
+                f"Error communicating with API: {exception.error_message}"
+            )
 
     coordinator = DataUpdateCoordinator(
         hass,
@@ -116,11 +139,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
 
     return True
 
+
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry):
     """Unload a config entry."""
-    unload_ok = await hass.config_entries.async_unload_platforms(
-        entry, PLATFORMS
-    )
+    unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
     if unload_ok:
         hass.data[DOMAIN][entry.entry_id][UNDO_UPDATE_LISTENER]()
         hass.data[DOMAIN].pop(entry.entry_id)
@@ -135,7 +157,10 @@ async def async_update_listener(hass: HomeAssistant, entry: ConfigEntry):
 
 class MilaEntity(CoordinatorEntity):
     """Representation of a Mila entity."""
-    def __init__(self, coordinator, device_id, platform_name = "Air Purifier", entity_name = None):
+
+    def __init__(
+        self, coordinator, device_id, platform_name="Air Purifier", entity_name=None
+    ):
         """Initialize device."""
         super().__init__(coordinator)
         self.device_id = device_id
@@ -166,7 +191,9 @@ class MilaEntity(CoordinatorEntity):
     def unique_id(self) -> str:
         """Return a unique ID."""
         if self.entity_name:
-            return f"{self.device.id}-{self.platform_name_snake_case}-{self.entity_name}"
+            return (
+                f"{self.device.id}-{self.platform_name_snake_case}-{self.entity_name}"
+            )
         return f"{self.device.id}-{self.platform_name_snake_case}"
 
     @property
