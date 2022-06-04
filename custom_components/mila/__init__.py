@@ -78,7 +78,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
     conf_devices = options.get(CONF_DEVICES, data[CONF_DEVICES])
     conf_identifiers = [(DOMAIN, resource_id) for resource_id in conf_devices]
 
-    device_registry = await hass.helpers.device_registry.async_get(hass)
+    device_registry = hass.helpers.device_registry.async_get(hass)
     for device_entry in hass.helpers.device_registry.async_entries_for_config_entry(
         device_registry, entry.entry_id
     ):
