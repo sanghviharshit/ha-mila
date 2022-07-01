@@ -7,7 +7,7 @@ from homeassistant.helpers.entity import Entity, DeviceInfo
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, CALLBACK_TYPE
 from milasdk import MilaApi
 
-from ..const import DATAKEY_ACCOUNT, DATAKEY_APPLIANCE, DATAKEY_OUTDOOR, DOMAIN, MANUFACTURER
+from ..const import DATAKEY_ACCOUNT, DATAKEY_APPLIANCE, DATAKEY_LOCATION, DOMAIN, MANUFACTURER
 
 class MilaDevice():
     """
@@ -74,8 +74,8 @@ class MilaDevice():
         return benedict(self._coordinator.data.get(DATAKEY_ACCOUNT,{}))
 
     @property
-    def _outdoor_data(self) -> benedict:
-        return benedict(self._coordinator.data.get(DATAKEY_OUTDOOR,{}))
+    def _location_data(self) -> benedict:
+        return benedict(self._coordinator.data.get(DATAKEY_LOCATION,{}))
 
     @property
     def _device_data(self) -> benedict:

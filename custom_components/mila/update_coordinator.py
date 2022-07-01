@@ -17,12 +17,12 @@ from .auth import MilaConfigEntryAuth, MilaOauthImplementation
 from .const import (
     DATAKEY_ACCOUNT,
     DATAKEY_APPLIANCE,
-    DATAKEY_OUTDOOR,
+    DATAKEY_LOCATION,
     DEFAULT_SCAN_INTERVAL,
     DEFAULT_TIMEOUT,
     DOMAIN
 )
-from .devices import MilaDevice, MilaAppliance
+from .devices import MilaDevice, MilaAppliance, MilaLocation
 
 PLATFORMS = ["sensor","switch","fan","select"]
 _LOGGER = logging.getLogger(__name__)
@@ -98,7 +98,7 @@ class MilaUpdateCoordinator(DataUpdateCoordinator):
             async with async_timeout.timeout(self._timeout):
                 data[DATAKEY_APPLIANCE] = {x["id"]: x for x in await self._api.get_appliances()}
             async with async_timeout.timeout(self._timeout):
-                data[DATAKEY_OUTDOOR] = await self._api.get_outdoor_data()
+                data[DATAKEY_LOCATION] = {f"loc_{x['id']}": x for x in await self._api.get_location_data()}
 
             #build the device list if needed
             if not self._initialized:
@@ -117,6 +117,9 @@ class MilaUpdateCoordinator(DataUpdateCoordinator):
         for id in data[DATAKEY_APPLIANCE].keys():
             _LOGGER.info(f"Found Mila device with id={id}, setting up...")
             self.devices[id] = MilaAppliance(self, self._api, id)
+        for id in data[DATAKEY_LOCATION].keys():
+            _LOGGER.info(f"Found Mila location with id={id}, setting up...")
+            self.devices[id] = MilaLocation(self, self._api, id)
 
     async def _detect_new_devices(self, old: list[str], new: dict[str,Any]):
         diff = set(new)-set(old)
