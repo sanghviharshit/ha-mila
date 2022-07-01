@@ -3,11 +3,11 @@
   "name": "Mila Cares",
   "config_flow": true,
   "documentation": "https://github.com/sanghviharshit/ha-mila",
-  "requirements": [],
+  "requirements": ["milasdk==0.3.0","python-benedict==0.24.3"],
   "codeowners": ["@sanghviharshit"],
-  "version": "0.0.1",
+  "version": "0.3.0",
   "iot_class": "cloud_polling",
-  "dependencies": ["http"],
+  "dependencies": [],
   "after_dependencies": [],
   "issue_tracker": "https://github.com/sanghviharshit/ha-mila/issues"
 }
