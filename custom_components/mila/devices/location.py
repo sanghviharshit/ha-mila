@@ -8,7 +8,7 @@ from homeassistant.helpers.entity import Entity
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 from homeassistant.components.sensor import SensorDeviceClass
 
-from milasdk import MilaApi, OutdoorStationSensorKind
+from milasdk import MilaApi
 
 from ..util import camel_case_split, coalesce
 from .device import MilaDevice
@@ -37,13 +37,21 @@ class MilaLocation(MilaDevice):
         from ..entities import (
             MilaLocationAqiSensor,
             MilaLocationPathSensor, 
-            MilaLocationDistanceSensor
+            MilaLocationDistanceSensor,
+            to_pollen_index
         )
         entities = [
             MilaLocationPathSensor(self, "Station Name", "outdoorStation.name", icon="mdi:map-marker"),
             MilaLocationPathSensor(self, "Station Latitude", "outdoorStation.point.lat", icon="mdi:latitude"),
             MilaLocationPathSensor(self, "Station Longitude", "outdoorStation.point.lon", icon="mdi:longitude"),
             MilaLocationPathSensor(self, "Station PM2.5", "outdoorStation.sensor.latest.value", device_class=SensorDeviceClass.PM25, uom=CONCENTRATION_MICROGRAMS_PER_CUBIC_METER),
+            MilaLocationPathSensor(self, "Pollen Station Name", "pollenStation.name", icon="mdi:map-marker"),
+            MilaLocationPathSensor(self, "Pollen Reported Date", "pollenStation.aggregateWindow[-1].date", device_class=SensorDeviceClass.DATE),
+            MilaLocationPathSensor(self, "Pollen Status - Trees", "pollenStation.aggregateWindow[-1].status.trees", convert_function=to_pollen_index, icon="mdi:tree"),
+            MilaLocationPathSensor(self, "Pollen Status - Weeds", "pollenStation.aggregateWindow[-1].status.weeds", convert_function=to_pollen_index, icon="mdi:flower"),
+            MilaLocationPathSensor(self, "Pollen Status - Grass", "pollenStation.aggregateWindow[-1].status.grass", convert_function=to_pollen_index, icon="mdi:grass"),
+            MilaLocationPathSensor(self, "Pollen Status - Mold", "pollenStation.aggregateWindow[-1].status.mold", convert_function=to_pollen_index, icon="mdi:mushroom"),
+
             MilaLocationAqiSensor(self),
             MilaLocationDistanceSensor(self),
         ]
