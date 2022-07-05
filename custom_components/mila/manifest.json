@@ -5,7 +5,7 @@
   "documentation": "https://github.com/sanghviharshit/ha-mila",
   "requirements": ["milasdk==0.4.1","python-benedict==0.24.3","geopy==2.2.0","python-aqi==0.6.1"],
   "codeowners": ["@sanghviharshit"],
-  "version": "0.4.0",
+  "version": "0.4.1",
   "iot_class": "cloud_polling",
   "dependencies": [],
   "after_dependencies": [],

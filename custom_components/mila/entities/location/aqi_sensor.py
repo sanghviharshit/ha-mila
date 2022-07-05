@@ -10,7 +10,7 @@ class MilaLocationAqiSensor(MilaLocationSensor):
         self, 
         device: MilaLocation
     ):
-        super().__init__(device, "AQI", device_class=SensorDeviceClass.AQI)
+        super().__init__(device, "AQI", device_class=SensorDeviceClass.AQI, uom="")
 
     @property
     def unique_id(self) -> str:
@@ -19,4 +19,4 @@ class MilaLocationAqiSensor(MilaLocationSensor):
     @property
     def native_value(self):
         pm25: float = self.device.get_value("outdoorStation.sensor.latest.value")
-        return aqi.to_iaqi(aqi.POLLUTANT_PM25, str(pm25), algo=aqi.ALGO_EPA)
+        return float(aqi.to_iaqi(aqi.POLLUTANT_PM25, str(pm25), algo=aqi.ALGO_EPA))
