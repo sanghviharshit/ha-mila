@@ -6,10 +6,18 @@
             "unknown": "Unknown error occured"
           },
         "abort": {
-            "already_configured": "Account already configured"
+            "already_configured": "Account already configured",
+            "reauth_successful": "Reauthentication was successful!"
         },
         "step": {
             "user": {
+                "data": {
+                    "password": "Password",
+                    "email": "Email"
+                }
+            },
+            "reauth_confirm": {
+                "description": "Authentication tokens became invalid, login to recreate them.",
                 "data": {
                     "password": "Password",
                     "email": "Email"

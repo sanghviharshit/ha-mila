@@ -46,89 +46,29 @@ class MilaConfigFlow(ConfigFlow, domain=DOMAIN):
     CONNECTION_CLASS = CONN_CLASS_CLOUD_POLL
 
     def __init__(self):
-        self.user_input = {}
-        self._entry_data_for_reauth: Mapping[str, Any] = {}
+        self._existing_entry = None
+        self._user_input = {}
+        self._description_placeholders = None
         super().__init__()
 
     @property
     def logger(self) -> logging.Logger:
         """Return logger."""
-        return logging.getLogger(__name__)   
+        return logging.getLogger(__name__)
 
-    async def async_step_user(self, user_input=None):
-        errors = {}
+    def _get_schema(self, step_id: str):
+        if step_id == "user":
+            return CREDENTIALS_SCHEMA
+        else:
+            return vol.Schema({vol.Required(CONF_PASSWORD): str})
 
-        if user_input is not None:
-            self.user_input[CONF_EMAIL] = user_input[CONF_EMAIL]
-            self.user_input[CONF_PASSWORD] = user_input[CONF_PASSWORD]
-
-            try:
-                #test the connection and set the token
-                await self.test_connection_and_set_token()
-                    
-                #get the existing entry
-                existing_entry = await self.async_set_unique_id(self.user_input[CONF_EMAIL])
-
-                #if we have an entry, assume that we want to update it (treat as re-auth)
-                if existing_entry:
-                    self.hass.config_entries.async_update_entry(existing_entry, data=user_input)
-                    self.hass.async_create_task(
-                        self.hass.config_entries.async_reload(existing_entry.entry_id)
-                    )
-                    return self.async_abort(reason="reauth_successful")
-
-                #if we didn't have an entry, create one
-                return self.async_create_entry(
-                    title=self.user_input[CONF_EMAIL],
-                    data=self.user_input
-                )            
-            #TODO: more exception handling (needs sdk fixes)
-            except Exception as ex:
-                logger.exception(ex)
-                errors["base"] = "invalid_auth"     
-
-        return self.async_show_form(
-            step_id="user",
-            data_schema=CREDENTIALS_SCHEMA,
-            errors=errors
-        )
-
-    async def async_step_reauth(self, entry_data: Mapping[str, Any]) -> FlowResult:
-        """Handle configuration by re-auth."""
-        self._entry_data_for_reauth = entry_data
-        return await self.async_step_reauth_confirm()
-
-    async def async_step_reauth_confirm(
-        self, user_input: Optional[dict[str, str]] = None
-    ) -> FlowResult:
-        """Handle re-auth completion."""
-        if not user_input:
-            return self.async_show_form(
-                step_id="reauth_confirm", 
-                data_schema=CREDENTIALS_SCHEMA
-            )
-
-        conf = {
-            **self._entry_data_for_reauth, 
-            CONF_EMAIL: user_input[CONF_EMAIL],
-            CONF_PASSWORD: user_input[CONF_PASSWORD]
-        }
-
-        return await self.async_step_user(conf)
-
-    @staticmethod
-    @callback
-    def async_get_options_flow(config_entry: ConfigEntry) -> OptionsFlow:
-        """Define the config flow to handle options."""
-        return MilaOptionsFlowHandler(config_entry)        
-
-    async def test_connection_and_set_token(self):
+    async def _test_connection_and_set_token(self):
         session = aiohttp_client.async_get_clientsession(self.hass)
         # create the api client
         auth_session = DefaultAsyncSession(
             session, 
-            self.user_input[CONF_EMAIL],
-            self.user_input[CONF_PASSWORD]
+            self._user_input[CONF_EMAIL],
+            self._user_input[CONF_PASSWORD]
         )        
         api = MilaApi(auth_session)
 
@@ -137,8 +77,91 @@ class MilaConfigFlow(ConfigFlow, domain=DOMAIN):
         self.logger.info("Successfully authenticated")
 
         #set the token to the one just obtained
-        self.user_input[CONF_TOKEN] = auth_session.token
-   
+        self._user_input[CONF_TOKEN] = auth_session.token
+               
+    def _show_setup_form(self, user_input=None, errors=None, step_id="user"):
+        """Show the setup form to the user."""
+
+        if user_input is None:
+            user_input = {}
+
+        return self.async_show_form(
+            step_id=step_id,
+            data_schema=self._get_schema(step_id),
+            errors=errors or {},
+            description_placeholders=self._description_placeholders,
+        ) 
+
+    async def _validate_and_create_entry(self, user_input, step_id):
+        """Check if config is valid and create entry if so."""
+
+        self._user_input[CONF_PASSWORD] = user_input[CONF_PASSWORD]
+
+        extra_inputs = user_input
+
+        if self._existing_entry:
+            extra_inputs = self._existing_entry
+        self._user_input[CONF_EMAIL] = extra_inputs[CONF_EMAIL]
+
+        if self.unique_id is None:
+            await self.async_set_unique_id(self._user_input[CONF_EMAIL])
+            self._abort_if_unique_id_configured()
+
+        try:
+            #test the connection and set the token
+            await self._test_connection_and_set_token()                         
+        except Exception as ex:
+            logger.exception(ex)
+            return self.async_show_form(
+                step_id=step_id,
+                data_schema=self._get_schema(step_id),
+                errors={"base": "invalid_auth"}
+            )
+
+        if step_id == "user":
+            #if we didn't have an entry, create one
+            return self.async_create_entry(
+                title=self._user_input[CONF_EMAIL],
+                data=self._user_input
+            )   
+
+        #if we have an entry, assume that we want to update it (treat as re-auth)
+        entry = await self.async_set_unique_id(self.unique_id)
+        self.hass.config_entries.async_update_entry(entry, data=self._user_input)
+        await self.hass.config_entries.async_reload(entry.entry_id)
+        return self.async_abort(reason="reauth_successful")
+       
+    async def async_step_user(self, user_input=None):
+        """ Handle a flow initiated by a user """
+        errors = {}
+
+        if user_input is None:
+            return self._show_setup_form(user_input, errors)
+
+        return await self._validate_and_create_entry(user_input, "user")
+
+    async def async_step_reauth(self, entry_data: Mapping[str, Any]) -> FlowResult:
+        """Handle configuration by re-auth."""
+        await self.async_set_unique_id(entry_data[CONF_EMAIL])
+        self._existing_entry = {**entry_data}
+        self._description_placeholders = {CONF_EMAIL: entry_data[CONF_EMAIL]}
+        return await self.async_step_reauth_confirm()
+
+    async def async_step_reauth_confirm(
+        self, user_input: Optional[dict[str, str]] = None
+    ) -> FlowResult:
+        """Handle re-auth completion."""
+        if user_input is None:
+            return self._show_setup_form(step_id="reauth_confirm")
+
+        return await self._validate_and_create_entry(user_input, "reauth_confirm")
+
+    @staticmethod
+    @callback
+    def async_get_options_flow(config_entry: ConfigEntry) -> OptionsFlow:
+        """Define the config flow to handle options."""
+        return MilaOptionsFlowHandler(config_entry) 
+
 class MilaOptionsFlowHandler(OptionsFlow):
     """Handle an Mila options flow."""
 

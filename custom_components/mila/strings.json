@@ -7,15 +7,23 @@
           "email": "Email",
           "password": "Password"
         }
-      }
+      },
+      "reauth_confirm": {
+        "description": "Authentication tokens became invalid, login to recreate them.",
+        "data": {
+          "email": "Email",
+          "password": "Password"
+        }
+      }      
     },
     "error": {
+      "invalid_auth": "Invalid login",      
       "cannot_connect": "Cannot connect",
       "unknown": "Unknown error occured"
     },
     "abort": {
       "already_configured": "Account already configured",
-      "invalid_auth": "Invalid login"
+      "reauth_successful": "Reauthentication was successful!"
     }
   },
   "options": {
