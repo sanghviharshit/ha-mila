@@ -3,7 +3,8 @@
   "name": "Mila Cares",
   "after_dependencies": [],
   "codeowners": [
-    "@sanghviharshit"
+    "@sanghviharshit",
+    "@simbaja"
   ],
   "config_flow": true,
   "dependencies": [],
