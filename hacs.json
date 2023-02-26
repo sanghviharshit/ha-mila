@@ -1,5 +1,5 @@
 {
-  "name": "HA-Mila",
   "domains": ["air_quality", "switch", "sensor", "fan"],
+  "name": "HA-Mila",
   "render_readme": true
 }
