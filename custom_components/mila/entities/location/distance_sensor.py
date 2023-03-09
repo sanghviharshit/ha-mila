@@ -5,6 +5,7 @@ from homeassistant.const import (
     LENGTH_KILOMETERS,
     LENGTH_MILES
 )
+from homeassistant.util.unit_system import METRIC_SYSTEM
 from homeassistant.util.distance import convert as distance_convert
 
 from ...const import DOMAIN
@@ -41,4 +42,4 @@ class MilaLocationDistanceSensor(MilaLocationSensor):
 
     @property
     def _is_metric(self) -> bool:
-        return self.device.hass.config.units.is_metric
+        return self.device.hass.config.units is METRIC_SYSTEM
