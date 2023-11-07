@@ -6,7 +6,7 @@ from homeassistant.const import (
     LENGTH_MILES
 )
 from homeassistant.util.unit_system import METRIC_SYSTEM
-from homeassistant.util.distance import convert as distance_convert
+from homeassistant.util.unit_conversion import DistanceConverter
 
 from ...const import DOMAIN
 from ...devices import MilaLocation
@@ -32,7 +32,7 @@ class MilaLocationDistanceSensor(MilaLocationSensor):
 
         val = geodesic(location_point, station_point).km
         if self._is_metric:
-            val = distance_convert(val, LENGTH_KILOMETERS, LENGTH_MILES)
+            val = DistanceConverter.convert(val, LENGTH_KILOMETERS, LENGTH_MILES)
 
         return round(val,2)
 
