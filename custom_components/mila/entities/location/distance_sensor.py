@@ -2,8 +2,7 @@ from geopy.distance import geodesic
 from typing import Optional
 
 from homeassistant.const import (
-    LENGTH_KILOMETERS,
-    LENGTH_MILES
+    UnitOfLength
 )
 from homeassistant.util.unit_system import METRIC_SYSTEM
 from homeassistant.util.unit_conversion import DistanceConverter
@@ -32,13 +31,13 @@ class MilaLocationDistanceSensor(MilaLocationSensor):
 
         val = geodesic(location_point, station_point).km
         if self._is_metric:
-            val = DistanceConverter.convert(val, LENGTH_KILOMETERS, LENGTH_MILES)
+            val = DistanceConverter.convert(val, UnitOfLength.KILOMETERS, UnitOfLength.MILES)
 
         return round(val,2)
 
     @property
     def native_unit_of_measurement(self) -> Optional[str]:
-        return LENGTH_KILOMETERS if self._is_metric else LENGTH_MILES
+        return UnitOfLength.KILOMETERS if self._is_metric else UnitOfLength.MILES
 
     @property
     def _is_metric(self) -> bool:

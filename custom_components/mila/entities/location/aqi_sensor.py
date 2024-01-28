@@ -10,7 +10,7 @@ class MilaLocationAqiSensor(MilaLocationSensor):
         self,
         device: MilaLocation
     ):
-        super().__init__(device, "AQI", device_class=SensorDeviceClass.AQI, uom="", state_class=SensorStateClass.MEASUREMENT)
+        super().__init__(device, "AQI", device_class=SensorDeviceClass.AQI, state_class=SensorStateClass.MEASUREMENT)
 
     @property
     def unique_id(self) -> str:
