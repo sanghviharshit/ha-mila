@@ -40,6 +40,8 @@ class MilaOauthImplementation(config_entry_oauth2_flow.AbstractOAuth2Implementat
         config_entry: ConfigEntry
     ) -> None:
         self.hass = hass
+        self._username = config_entry.data["email"]
+        self._password = config_entry.data["password"]
         self._auth = milasdk.MilaOauth2(token=cast(dict, config_entry.data["token"]))
         
     @property
@@ -57,4 +59,13 @@ class MilaOauthImplementation(config_entry_oauth2_flow.AbstractOAuth2Implementat
         return {} #can accept the user/password here and use oauth flow if needed
 
     async def _async_refresh_token(self, token: dict) -> dict:
-        return await self._auth.async_refresh_token()
+        try:
+            # try to just refresh the token
+            return await self._auth.async_refresh_token()
+        except Exception as ex:
+            try:
+                # try the full auth request
+                return await self._auth.async_request_token(self._username, self._password)
+            except:
+                # raise the original exception
+                raise ex

@@ -4,8 +4,7 @@ import logging
 from typing import Optional, List
 
 from homeassistant.components.fan import (
-    SUPPORT_PRESET_MODE,
-    SUPPORT_SET_SPEED
+    FanEntityFeature
 )
 
 from homeassistant.util.percentage import (
@@ -36,7 +35,7 @@ class MilaApplianceFan(MilaFan):
     ):
         super().__init__(device, "Fan", "mdi:fan")      
         self._preset_modes = PRESET_MODES
-        self._supported_features = SUPPORT_SET_SPEED | SUPPORT_PRESET_MODE
+        self._supported_features = FanEntityFeature.SET_SPEED | FanEntityFeature.PRESET_MODE
         self._speed_count = 10
         self._percentage_override: Optional[float] = None
 
