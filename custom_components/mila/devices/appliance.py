@@ -85,10 +85,10 @@ class MilaAppliance(MilaDevice):
         entities = [
             MilaAppliancePathSensor(self, "Mode", "state.actualMode", icon="mdi:state-machine", convert_function=lambda v: str(v)),
             MilaAppliancePathSensor(self, "Wifi Strength", "state.wifiRssi", device_class=SensorDeviceClass.SIGNAL_STRENGTH, uom=SIGNAL_STRENGTH_DECIBELS_MILLIWATT, icon="mdi:wifi"),
-            MilaAppliancePathSensor(self, "Filter Kind", "filter.kind", icon="mdi:hvac", convert_function=lambda v: str(v)),
-            MilaAppliancePathSensor(self, "Filter Days Left", "filter.daysLeft", uom="days", icon="mdi:counter"),
-            MilaAppliancePathSensor(self, "Filter Install Date", "filter.installedAt", device_class=SensorDeviceClass.DATE, icon="mdi:calendar-refresh"),
-            MilaAppliancePathSensor(self, "Filter Calibrated Date", "filter.calibratedAt", device_class=SensorDeviceClass.DATE, icon="mdi:calendar"),
+            #MilaAppliancePathSensor(self, "Filter Kind", "filter.kind", icon="mdi:hvac", convert_function=lambda v: str(v)),
+            #MilaAppliancePathSensor(self, "Filter Days Left", "filter.daysLeft", uom="days", icon="mdi:counter"),
+            #MilaAppliancePathSensor(self, "Filter Install Date", "filter.installedAt", device_class=SensorDeviceClass.DATE, icon="mdi:calendar-refresh"),
+            #MilaAppliancePathSensor(self, "Filter Calibrated Date", "filter.calibratedAt", device_class=SensorDeviceClass.DATE, icon="mdi:calendar"),
             MilaAppliancePathSensor(self, "Bedtime Start", "room.bedtime.localStart", icon="mdi:calendar-start"),
             MilaAppliancePathSensor(self, "Bedtime End", "room.bedtime.localEnd", icon="mdi:calendar-end"),
             
@@ -103,7 +103,7 @@ class MilaAppliance(MilaDevice):
             MilaApplianceMeasurementSensor(self, "PM10", ApplianceSensorKind.Pm10, device_class=SensorDeviceClass.PM10, uom=CONCENTRATION_MICROGRAMS_PER_CUBIC_METER),
             MilaApplianceMeasurementSensor(self, "PM2.5", ApplianceSensorKind.Pm2_5, device_class=SensorDeviceClass.PM25, uom=CONCENTRATION_MICROGRAMS_PER_CUBIC_METER),
             #MilaApplianceMeasurementSensor(self, "Max Pressure", ApplianceSensorKind.PressureMax, device_class=SensorDeviceClass.PRESSURE, uom="Unknown"),
-            #MilaApplianceMeasurementSensor(self, "TTC", ApplianceSensorKind.Ttc, uom = "Unknown"),
+            MilaApplianceMeasurementSensor(self, "Time To Clean", ApplianceSensorKind.Ttc, device_class=SensorDeviceClass.duration, uom = "min", icon="mdi:timer-sand"),
             MilaApplianceMeasurementSensor(self, "VOC", ApplianceSensorKind.Voc, device_class=SensorDeviceClass.VOLATILE_ORGANIC_COMPOUNDS, uom=CONCENTRATION_MICROGRAMS_PER_CUBIC_METER, uom_conversion_factor=TVOC_PPB_TO_UGM3),
             MilaApplianceMeasurementSensor(self, "Temperature", ApplianceSensorKind.Temperature, uom=UnitOfTemperature.CELSIUS, device_class=SensorDeviceClass.TEMPERATURE, precision=1),
 
