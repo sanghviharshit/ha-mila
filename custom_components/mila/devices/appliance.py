@@ -77,7 +77,7 @@ class MilaAppliance(MilaDevice):
         from ..entities import (
             MilaAppliancePathSensor, 
             MilaApplianceMeasurementSensor, 
-            MilaSmartModeSwitch,
+            #MilaSmartModeSwitch,
             MilaApplianceFan,
             MilaSoundModeSelect,
             TVOC_PPB_TO_UGM3
@@ -107,14 +107,14 @@ class MilaAppliance(MilaDevice):
             MilaApplianceMeasurementSensor(self, "VOC", ApplianceSensorKind.Voc, device_class=SensorDeviceClass.VOLATILE_ORGANIC_COMPOUNDS, uom=CONCENTRATION_MICROGRAMS_PER_CUBIC_METER, uom_conversion_factor=TVOC_PPB_TO_UGM3),
             MilaApplianceMeasurementSensor(self, "Temperature", ApplianceSensorKind.Temperature, uom=UnitOfTemperature.CELSIUS, device_class=SensorDeviceClass.TEMPERATURE, precision=1),
 
-            MilaSmartModeSwitch(self, SmartModeKind.Quiet, SmartModeKind.Quiet, "mdi:ear-hearing-off"),
-            MilaSmartModeSwitch(self, SmartModeKind.Quarantine, SmartModeKind.Quarantine, "mdi:virus"),
-            MilaSmartModeSwitch(self, "Child Lock", SmartModeKind.ChildLock, "mdi:lock"),
-            MilaSmartModeSwitch(self, SmartModeKind.Housekeeper, SmartModeKind.Housekeeper, "mdi:broom"),
-            MilaSmartModeSwitch(self, "Power Saver", SmartModeKind.PowerSaver, "mdi:power"),
-            MilaSmartModeSwitch(self, SmartModeKind.Sleep, SmartModeKind.Sleep, "mdi:sleep"),
-            MilaSmartModeSwitch(self, SmartModeKind.Turndown, SmartModeKind.Turndown, "mdi:bed"),
-            MilaSmartModeSwitch(self, SmartModeKind.Whitenoise, SmartModeKind.Whitenoise, "mdi:waveform"),
+            #MilaSmartModeSwitch(self, SmartModeKind.Quiet, SmartModeKind.Quiet, "mdi:ear-hearing-off"),
+            #MilaSmartModeSwitch(self, SmartModeKind.Quarantine, SmartModeKind.Quarantine, "mdi:virus"),
+            #MilaSmartModeSwitch(self, "Child Lock", SmartModeKind.ChildLock, "mdi:lock"),
+            #MilaSmartModeSwitch(self, SmartModeKind.Housekeeper, SmartModeKind.Housekeeper, "mdi:broom"),
+            #MilaSmartModeSwitch(self, "Power Saver", SmartModeKind.PowerSaver, "mdi:power"),
+            #MilaSmartModeSwitch(self, SmartModeKind.Sleep, SmartModeKind.Sleep, "mdi:sleep"),
+            #MilaSmartModeSwitch(self, SmartModeKind.Turndown, SmartModeKind.Turndown, "mdi:bed"),
+            #MilaSmartModeSwitch(self, SmartModeKind.Whitenoise, SmartModeKind.Whitenoise, "mdi:waveform"),
 
             MilaApplianceFan(self),
             MilaSoundModeSelect(self)
