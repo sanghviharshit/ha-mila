@@ -53,28 +53,20 @@ class MilaUpdateCoordinator(DataUpdateCoordinator):
         self._initialized = True
 
         _LOGGER.debug("Forwarding setup to platforms")
-        for component in PLATFORMS:
-            self.hass.async_create_task(
-                self.hass.config_entries.async_forward_entry_setup(
-                    self._config_entry, component
-                )
-            )
+        await self.hass.config_entries.async_forward_entry_setups(
+            self._config_entry,
+            PLATFORMS
+        )
 
         return True
 
     async def async_reset(self):
         """Resets the coordinator."""
         _LOGGER.debug("resetting the coordinator")
-        entry = self._config_entry
-        unload_ok = all(
-            await asyncio.gather(
-                *[
-                    self.hass.config_entries.async_forward_entry_unload(
-                        entry, component
-                    )
-                    for component in PLATFORMS
-                ]
-            )
+
+        unload_ok = await self.hass.config_entries.async_unload_platforms(
+            self._config_entry, 
+            PLATFORMS
         )
         return unload_ok
 
