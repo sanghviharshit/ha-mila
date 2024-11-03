@@ -35,7 +35,12 @@ class MilaApplianceFan(MilaFan):
     ):
         super().__init__(device, "Fan", "mdi:fan")      
         self._preset_modes = PRESET_MODES
-        self._supported_features = FanEntityFeature.SET_SPEED | FanEntityFeature.PRESET_MODE
+        self._supported_features = (
+            FanEntityFeature.SET_SPEED | 
+            FanEntityFeature.PRESET_MODE |
+            FanEntityFeature.TURN_ON |
+            FanEntityFeature.TURN_OFF
+        )
         self._speed_count = 10
         self._percentage_override: Optional[float] = None
 

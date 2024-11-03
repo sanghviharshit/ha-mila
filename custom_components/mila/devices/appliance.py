@@ -103,7 +103,7 @@ class MilaAppliance(MilaDevice):
             MilaApplianceMeasurementSensor(self, "PM10", ApplianceSensorKind.Pm10, device_class=SensorDeviceClass.PM10, uom=CONCENTRATION_MICROGRAMS_PER_CUBIC_METER),
             MilaApplianceMeasurementSensor(self, "PM2.5", ApplianceSensorKind.Pm2_5, device_class=SensorDeviceClass.PM25, uom=CONCENTRATION_MICROGRAMS_PER_CUBIC_METER),
             #MilaApplianceMeasurementSensor(self, "Max Pressure", ApplianceSensorKind.PressureMax, device_class=SensorDeviceClass.PRESSURE, uom="Unknown"),
-            MilaApplianceMeasurementSensor(self, "Time To Clean", ApplianceSensorKind.Ttc, device_class=SensorDeviceClass.duration, uom = "min", icon="mdi:timer-sand"),
+            MilaApplianceMeasurementSensor(self, "Time To Clean", ApplianceSensorKind.Ttc, device_class=SensorDeviceClass.DURATION, uom = "min", icon="mdi:timer-sand"),
             MilaApplianceMeasurementSensor(self, "VOC", ApplianceSensorKind.Voc, device_class=SensorDeviceClass.VOLATILE_ORGANIC_COMPOUNDS, uom=CONCENTRATION_MICROGRAMS_PER_CUBIC_METER, uom_conversion_factor=TVOC_PPB_TO_UGM3),
             MilaApplianceMeasurementSensor(self, "Temperature", ApplianceSensorKind.Temperature, uom=UnitOfTemperature.CELSIUS, device_class=SensorDeviceClass.TEMPERATURE, precision=1),
 
