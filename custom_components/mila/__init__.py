@@ -19,8 +19,16 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
     coordinator = MilaUpdateCoordinator(hass, entry)
     hass.data[DOMAIN][entry.entry_id] = coordinator
 
-    if not await coordinator.async_setup():
-        return False
+    try:
+        if not await coordinator.async_setup():
+            # Setup returned False, close session to prevent leak
+            await coordinator.async_close_session()
+            return False
+    except Exception as ex:
+        # Setup failed with exception, close session to prevent leak
+        _LOGGER.error(f"Mila setup failed: {ex}")
+        await coordinator.async_close_session()
+        raise
 
     return True
 

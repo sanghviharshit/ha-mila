@@ -18,10 +18,11 @@ class MilaConfigEntryAuth(milasdk.auth.AbstractAsyncSession):  # type: ignore[mi
         self,
         hass: HomeAssistant,
         config_entry: ConfigEntry,
-        implementation: config_entry_oauth2_flow.AbstractOAuth2Implementation,
+        implementation: "MilaOauthImplementation",
     ) -> None:
         """Initialize Mila API Auth."""
         self.hass = hass
+        self._implementation = implementation  # Store reference for cleanup
         self.session = config_entry_oauth2_flow.OAuth2Session(
             hass, config_entry, implementation
         )
@@ -31,6 +32,10 @@ class MilaConfigEntryAuth(milasdk.auth.AbstractAsyncSession):  # type: ignore[mi
         """Refresh and return new Mila API tokens using Home Assistant OAuth2 session."""
         await self.session.async_ensure_token_valid()
         return self.session.token["access_token"]  # type: ignore[no-any-return]
+
+    async def async_close(self) -> None:
+        """Close the underlying OAuth session."""
+        await self._implementation.async_close()
 
 class MilaOauthImplementation(config_entry_oauth2_flow.AbstractOAuth2Implementation):
     """Mila implementation of AbstractOAuth2Implementation."""
@@ -42,7 +47,13 @@ class MilaOauthImplementation(config_entry_oauth2_flow.AbstractOAuth2Implementat
         self.hass = hass
         self._username = config_entry.data["email"]
         self._password = config_entry.data["password"]
-        self._auth = milasdk.MilaOauth2(token=cast(dict, config_entry.data["token"]))
+        # Get the shared session's connector to avoid creating orphaned sessions
+        shared_session = aiohttp_client.async_get_clientsession(hass)
+        self._auth = milasdk.MilaOauth2(
+            token=cast(dict, config_entry.data["token"]),
+            connector=shared_session.connector,
+            connector_owner=False,  # HA owns the connector, don't close it
+        )
         
     @property
     def name(self) -> str:
@@ -69,3 +80,9 @@ class MilaOauthImplementation(config_entry_oauth2_flow.AbstractOAuth2Implementat
             except:
                 # raise the original exception
                 raise ex
+
+    async def async_close(self) -> None:
+        """Close the underlying MilaOauth2 session to prevent session leaks."""
+        if self._auth is not None and not self._auth.closed:
+            await self._auth.close()
+

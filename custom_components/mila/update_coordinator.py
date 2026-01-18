@@ -33,8 +33,11 @@ class MilaUpdateCoordinator(DataUpdateCoordinator):
     def __init__(self, hass: HomeAssistant, config_entry: ConfigEntry) -> None:
         """Set up the MilaUpdateCoordinator class."""
         self._hass = hass
-        self._config_entry = config_entry        
-        self._api = MilaApi(MilaConfigEntryAuth(hass, config_entry, MilaOauthImplementation(hass, config_entry)))
+        self._config_entry = config_entry
+        # Store auth reference for proper cleanup on unload
+        oauth_impl = MilaOauthImplementation(hass, config_entry)
+        self._auth = MilaConfigEntryAuth(hass, config_entry, oauth_impl)
+        self._api = MilaApi(self._auth)
 
         options = config_entry.options
         self._update_interval = options.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL)
@@ -64,11 +67,26 @@ class MilaUpdateCoordinator(DataUpdateCoordinator):
         """Resets the coordinator."""
         _LOGGER.debug("resetting the coordinator")
 
+        # Close the OAuth session to prevent session leaks
+        await self.async_close_session()
+
         unload_ok = await self.hass.config_entries.async_unload_platforms(
             self._config_entry, 
             PLATFORMS
         )
         return unload_ok
+
+    async def async_close_session(self):
+        """Close the OAuth session to prevent session leaks.
+        
+        This is called separately from async_reset() to handle setup failures
+        where platforms were never loaded.
+        """
+        if self._auth is not None:
+            try:
+                await self._auth.async_close()
+            except Exception as ex:
+                _LOGGER.warning(f"Error closing Mila auth session: {ex}")
 
     async def _async_update_data(self):
         """Fetch data from API endpoint.
