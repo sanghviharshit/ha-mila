@@ -1,3 +1,4 @@
+import logging
 from geopy.distance import geodesic
 from typing import Optional
 
@@ -10,6 +11,8 @@ from homeassistant.util.unit_conversion import DistanceConverter
 from ...const import DOMAIN
 from ...devices import MilaLocation
 from .sensor import MilaLocationSensor
+
+_LOGGER = logging.getLogger(__name__)
 
 class MilaLocationDistanceSensor(MilaLocationSensor):
     def __init__(
@@ -24,16 +27,20 @@ class MilaLocationDistanceSensor(MilaLocationSensor):
 
     @property
     def native_value(self):
-        location_point = (float(self.device.get_value("address.point.lat")),
-            float(self.device.get_value("address.point.lon")))
-        station_point = (float(self.device.get_value("outdoorStation.point.lat")),
-            float(self.device.get_value("outdoorStation.point.lon")))
+        try:
+            location_point = (float(self.device.get_value("address.point.lat")),
+                float(self.device.get_value("address.point.lon")))
+            station_point = (float(self.device.get_value("outdoorStation.point.lat")),
+                float(self.device.get_value("outdoorStation.point.lon")))
 
-        val = geodesic(location_point, station_point).km
-        if self._is_metric:
-            val = DistanceConverter.convert(val, UnitOfLength.KILOMETERS, UnitOfLength.MILES)
+            val = geodesic(location_point, station_point).km
+            if self._is_metric:
+                val = DistanceConverter.convert(val, UnitOfLength.KILOMETERS, UnitOfLength.MILES)
 
-        return round(val,2)
+            return round(val,2)
+        except Exception as ex:
+            _LOGGER.error(f"Error getting native value for {self.name}", exc_info=ex)
+            return None
 
     @property
     def native_unit_of_measurement(self) -> Optional[str]:
