@@ -1,0 +1,22 @@
+set_bedtime:
+  name: Set bedtime window
+  description: Set the room's nighttime start/end for an appliance's room.
+  target:
+    entity:
+      integration: mila
+      domain: fan
+  fields:
+    local_start:
+      name: Local start
+      description: Local time bedtime begins (HH:MM or HH:MM:SS).
+      required: true
+      example: "22:00"
+      selector:
+        time:
+    local_end:
+      name: Local end
+      description: Local time bedtime ends (HH:MM or HH:MM:SS).
+      required: true
+      example: "06:30"
+      selector:
+        time:
