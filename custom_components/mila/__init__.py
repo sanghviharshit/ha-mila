@@ -13,8 +13,12 @@ Exception translation matters because HA reacts differently to each:
 * anything else            -> the entry is marked failed and stays failed
                               until the user manually reloads.
 
-We catch broad enough categories here to ensure no aiohttp/Mila exception
-ever escapes as a bare `Exception` to HA.
+The coordinator already translates its own refresh errors into the two
+`ConfigEntry*` types above; those pass through here untouched. The
+`OAuthError` / `MilaError` / `Exception` handlers below are a safety net
+for anything that escapes that translation (for example an error raised
+while forwarding setup to the entity platforms), so no aiohttp/Mila
+exception ever reaches HA as a bare `Exception`.
 """
 from __future__ import annotations
 
@@ -65,15 +69,19 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     hass.data[DOMAIN][entry.entry_id] = coordinator
 
     try:
-        if not await coordinator.async_setup():
-            # `async_setup` only returns False after the first refresh
-            # succeeds but platform forwarding fails. Close the auth
-            # session so we don't leak aiohttp resources.
-            await coordinator.async_close_session()
-            return False
+        await coordinator.async_setup()
     except ConfigEntryAuthFailed:
         # The coordinator already translated OAuth failure for us.
         # Don't wrap it again or HA will lose the auth-flow trigger.
+        await coordinator.async_close_session()
+        raise
+    except ConfigEntryNotReady:
+        # `async_config_entry_first_refresh` already produced the right
+        # exception type (it wraps the first failed poll into NotReady
+        # itself). Pass it through untouched: re-wrapping it below in
+        # the generic handler would log an ERROR with a full traceback
+        # for what is usually just a transient network hiccup during
+        # startup, and HA retries these automatically anyway.
         await coordinator.async_close_session()
         raise
     except OAuthError as ex:

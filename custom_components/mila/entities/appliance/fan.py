@@ -8,24 +8,29 @@ state actually lives on the Mila API.
 To keep the UI responsive when the user moves the speed slider:
 
 1. The user changes the percentage in HA.
-2. We send `applyRoomPerformanceConfig` (via the device wrapper) and
-   stash the requested percentage as `_percentage_override` so the
-   `percentage` property returns the user's target rather than the
-   stale cached RPM.
-3. We register a coordinator listener (`_update_listener`) that clears
-   `_percentage_override` once a fresh poll lands a real reading
-   within 10 % of the target.
+2. We stash the requested percentage as `_percentage_override` (and
+   push a state write) BEFORE sending `applyRoomPerformanceConfig`, so
+   the `percentage` property returns the user's target rather than the
+   stale cached RPM for the whole round trip. If the mutation fails,
+   the override is rolled back so the UI doesn't show a change that
+   never happened.
+3. A coordinator listener (`_update_listener`) clears
+   `_percentage_override` once a fresh poll lands a real RPM-derived
+   reading within 10 % of the target. The comparison must use the raw
+   RPM mapping, not the `percentage` property: that property returns
+   the override itself while one is set, so comparing it against the
+   override would always match and clear the override on the very
+   first refresh, stale or not.
 
 Without the override, the UI snaps back to the previous percentage
-during the second or two between sending the mutation and getting a
-fresh poll cycle.
+during the gap between sending the mutation and the first poll that
+reflects the new speed.
 """
 from __future__ import annotations
 
-import asyncio
 import logging
 from datetime import time
-from typing import List, Optional
+from typing import Optional
 
 from homeassistant.components.fan import FanEntityFeature
 
@@ -37,6 +42,13 @@ from ..common import MilaFan
 from .const import PRESET_MODE_AUTOMAGIC, PRESET_MODE_MANUAL, PRESET_MODES
 
 _LOGGER = logging.getLogger(__name__)
+
+# How many coordinator refreshes an optimistic percentage override may
+# survive without the live RPM catching up before we discard it and
+# fall back to the real reading. The override is cleared on the refresh
+# *after* this many, so it lives at most four poll cycles: roughly
+# eight minutes at the default 120 s scan interval.
+_OVERRIDE_MAX_REFRESHES = 3
 
 
 class MilaApplianceFan(MilaFan):
@@ -72,6 +84,13 @@ class MilaApplianceFan(MilaFan):
         # speed change and receiving a fresh reading. See module
         # docstring for the lifecycle.
         self._percentage_override: Optional[float] = None
+        # Refreshes seen since the override was set. Safety valve: if
+        # the device never converges on the target (Automagic took back
+        # control, appliance clamped the speed), the override would
+        # otherwise show the user's target forever. After
+        # `_OVERRIDE_MAX_REFRESHES` polls we surrender to the live
+        # reading whether or not it caught up.
+        self._override_refresh_count = 0
 
         # Subscribe to coordinator updates so we can clear the
         # optimistic override once the real reading catches up.
@@ -92,14 +111,20 @@ class MilaApplianceFan(MilaFan):
         """Current RPM as reported by the FanSpeed sensor.
 
         Used internally to derive the `percentage` and `is_on`
-        properties. Returns None if no reading is cached yet.
+        properties. Returns None if no reading is cached yet. Every
+        step is guarded because the payload can legitimately thin out:
+        `sensors` is None for an offline appliance, and `latest` is
+        null when no sample landed inside the query's precision window.
         """
-        sensors: List = self.device.get_value("sensors")
+        sensors = self.device.get_value("sensors") or []
         sensor = next(
-            (s for s in sensors if s["kind"] == ApplianceSensorKind.FanSpeed),
+            (s for s in sensors if s.get("kind") == ApplianceSensorKind.FanSpeed),
             None,
         )
-        return sensor["latest"]["value"] if sensor else None
+        if sensor is None:
+            return None
+        latest = sensor.get("latest") or {}
+        return latest.get("value")
 
     @property
     def current_mode(self) -> Optional[ApplianceMode]:
@@ -108,7 +133,14 @@ class MilaApplianceFan(MilaFan):
 
     @property
     def is_on(self) -> bool:
-        """True if the fan is spinning (any RPM above 0)."""
+        """True if the fan is spinning (any RPM above 0).
+
+        Honours the optimistic override so a just-issued turn-off shows
+        as "off" immediately instead of staying "on" until the RPM
+        reading catches up (and vice versa for turn-on).
+        """
+        if self._percentage_override is not None:
+            return self._percentage_override > 0
         return self.speed is not None and self.speed > 0
 
     @property
@@ -126,13 +158,14 @@ class MilaApplianceFan(MilaFan):
         """User-facing fan speed as 0-100 %.
 
         Prefers the optimistic override if one is set (so the UI
-        doesn't lag behind a slider drag). Otherwise maps the live
-        RPM sensor onto Mila's stepped percentage table.
+        doesn't lag behind a slider drag), even when no RPM reading is
+        cached yet. Otherwise maps the live RPM sensor onto Mila's
+        stepped percentage table.
         """
-        if self.speed is None:
-            return None
         if self._percentage_override is not None:
             return self._percentage_override
+        if self.speed is None:
+            return None
         return rpm_to_percentage(self.speed)
 
     @property
@@ -208,22 +241,38 @@ class MilaApplianceFan(MilaFan):
 
     async def async_turn_on(
         self,
-        speed: str = None,           # legacy HA pre-2022 arg
         percentage: int = None,
         preset_mode: str = None,
         **kwargs,
     ) -> None:
         """HA-driven on. Behaviour depends on which optional args were given.
 
-        * percentage supplied  -> manual mode at that percentage.
+        * percentage supplied  -> manual mode at that percentage (wins
+                                  over preset_mode if both arrive,
+                                  since a specific speed implies
+                                  Manual; applying the preset first
+                                  would fire an extra mutation carrying
+                                  the stale cached speed).
         * preset_mode supplied -> apply the preset.
         * neither supplied     -> default to Automagic (the smart mode).
+
+        Checks are `is not None`, not truthiness: a percentage of 0 is
+        a valid (if unusual) request meaning "off", and a truthy check
+        would silently do nothing with it.
+
+        Signature note: HA core's fan service handler invokes this
+        POSITIONALLY as `async_turn_on(percentage, preset_mode)`, so
+        the parameter order here must match core's exactly. This is
+        also why the legacy pre-2022 leading `speed` parameter had to
+        go: with it in first position, core's positional call bound
+        the percentage into `speed` (ignored) and the preset string
+        into `percentage`.
         """
-        if percentage:
+        if percentage is not None:
             await self.async_set_percentage(percentage)
-        if preset_mode:
+        elif preset_mode is not None:
             await self.async_set_preset_mode(preset_mode)
-        if percentage is None and preset_mode is None:
+        else:
             # "Just turn on" -> let the appliance choose a speed.
             await self.async_set_preset_mode(PRESET_MODE_AUTOMAGIC)
 
@@ -234,20 +283,36 @@ class MilaApplianceFan(MilaFan):
         await self.async_set_percentage(0)
 
     async def async_set_percentage(self, percentage: int) -> None:
-        """Set fan speed in percent. Promotes to Manual if currently Automagic."""
-        # Setting a specific percentage only makes sense in Manual mode,
-        # so switch first. The API allows manual + a specific
-        # `fanSpeed` enum value to be applied in one call, but we go
-        # through the preset-mode change so the entity state stays
-        # consistent with what HA shows.
-        if self.preset_mode == PRESET_MODE_AUTOMAGIC:
-            await self.async_set_preset_mode(PRESET_MODE_MANUAL)
-        await self.device.set_fan_speed(percentage)
-        # Briefly wait so the mutation has time to land before the
-        # next refresh fires; the override below covers the rest of
-        # the gap.
-        await asyncio.sleep(1)
+        """Set fan speed in percent (0 turns the fan off).
+
+        `MilaAppliance.set_fan_speed` sends `mode=Manual` and the
+        target speed in a single `applyRoomPerformanceConfig` call, so
+        there is no separate preset-mode mutation here. (There used to
+        be one, and because it carried the stale cached `fanSpeed`, a
+        turn-off from Automagic would briefly command the old speed
+        before the real request landed.)
+
+        The optimistic override is set BEFORE the API call so the UI
+        reflects the user's target immediately; `_update_listener`
+        clears it once a real reading catches up. On failure the
+        override is rolled back so the UI doesn't keep showing a speed
+        the appliance never accepted.
+        """
+        previous_override = self._percentage_override
         self._percentage_override = percentage
+        self._override_refresh_count = 0
+        self.async_write_ha_state()
+        try:
+            await self.device.set_fan_speed(percentage)
+        except Exception:
+            # Roll back only if the override is still ours: a second
+            # set_percentage may have raced past this one while the
+            # API call was in flight, and its newer target must not be
+            # clobbered by our failure cleanup.
+            if self._percentage_override == percentage:
+                self._percentage_override = previous_override
+                self.async_write_ha_state()
+            raise
 
     async def async_set_bedtime(
         self, local_start: time, local_end: time
@@ -280,14 +345,30 @@ class MilaApplianceFan(MilaFan):
         """Clear the optimistic override once the live reading catches up.
 
         Called by the coordinator on every refresh. We compare the
-        cached RPM-derived percentage against the user's last target;
-        if they're within one bucket (10 %), the device has caught up
-        and we let HA fall back to the real reading.
+        RPM-derived percentage against the user's last target; if
+        they're within one bucket (10 %), the device has caught up and
+        we let HA fall back to the real reading.
+
+        The comparison deliberately maps `self.speed` through
+        `rpm_to_percentage` instead of reading `self.percentage`: that
+        property returns the override itself while one is set, so
+        comparing it against the override would always succeed and
+        clear the override on the very first refresh even when the
+        cached RPM is still the old speed.
         """
         if self._percentage_override is None:
             return
-        live_pct = self.percentage
-        if live_pct is None:
+        # Safety valve: give up on the override after a few polls even
+        # if the reading never converged (Automagic reclaimed control,
+        # or the appliance clamped the requested speed). Counted before
+        # the convergence check so a missing RPM reading also ages the
+        # override out instead of latching it forever.
+        self._override_refresh_count += 1
+        if self._override_refresh_count > _OVERRIDE_MAX_REFRESHES:
+            self._percentage_override = None
             return
-        if abs(live_pct - self._percentage_override) < 10:
+        rpm = self.speed
+        if rpm is None:
+            return
+        if abs(rpm_to_percentage(rpm) - self._percentage_override) < 10:
             self._percentage_override = None

@@ -45,18 +45,41 @@ class MilaLocation(MilaDevice):
 
         The compound id at the end disambiguates multi-location
         accounts ("San Francisco, US (#5421)" vs another San Francisco
-        entry).
+        entry). Falls back to the raw id when the address is missing
+        from the payload (location removed from the account, or
+        onboarding never set one) rather than rendering "None, None".
         """
-        return (
-            f"{self._device_data['address.city']}, "
-            f"{self._device_data['address.country']} "
-            f"(#{self._device_data['id']})"
-        )
+        # Compose from whichever address parts exist so a payload with
+        # only a city (or only a country) doesn't render a literal
+        # "None" in the label.
+        parts = [
+            part
+            for part in (
+                self._device_data.get("address.city"),
+                self._device_data.get("address.country"),
+            )
+            if part is not None
+        ]
+        if not parts:
+            return f"Mila Location ({self.id})"
+        return f"{', '.join(parts)} (#{self._device_data.get('id')})"
 
     @property
     def _device_data(self) -> benedict:
-        """The slice of cached data that belongs to this location."""
-        return self._location_data[self.id]
+        """The slice of cached data that belongs to this location.
+
+        Same disappeared-device tolerance as the appliance wrapper: an
+        id missing from the latest payload yields an empty benedict so
+        reads degrade to None instead of raising KeyError inside
+        coordinator listener callbacks.
+        """
+        data = self._location_data.get(self.id)
+        return benedict(data) if data is not None else benedict()
+
+    def _get_model(self) -> str:
+        """Locations are logical containers, not purifiers; say so on
+        the device card instead of inheriting the appliance model."""
+        return "Mila Location"
 
     def _get_all_entities(self) -> List[Entity]:
         """Build the per-location entity list.
@@ -97,47 +120,19 @@ class MilaLocation(MilaDevice):
                 uom=CONCENTRATION_MICROGRAMS_PER_CUBIC_METER,
                 state_class=SensorStateClass.MEASUREMENT,
             ),
-            # The pollen station name is included; the live API does
-            # return aggregateWindow but its shape is brittle (the
-            # `aggregateWindow[-1].status.*` paths below historically
-            # rendered empty on many accounts). We expose the path
-            # sensors so users with valid data see them, and pollen-free
-            # accounts simply get `None` for the daily values.
+            # Only the pollen station's name is exposed. The old
+            # `pollenStation.aggregateWindow[-1].*` daily-status sensors
+            # were removed: `GET_LOCATIONS` never requests
+            # `aggregateWindow`, so those five sensors were permanently
+            # "unknown" for every account. If pollen data comes back,
+            # add the field to the query first (and mind that its
+            # response shape has historically been unstable), then
+            # reintroduce the sensors.
             MilaLocationPathSensor(
                 self,
                 "Pollen Station Name",
                 "pollenStation.name",
                 icon="mdi:map-marker",
-            ),
-            MilaLocationPathSensor(
-                self,
-                "Pollen Reported Date",
-                "pollenStation.aggregateWindow[-1].date",
-                device_class=SensorDeviceClass.DATE,
-            ),
-            MilaLocationPathSensor(
-                self,
-                "Pollen Status - Trees",
-                "pollenStation.aggregateWindow[-1].status.trees",
-                icon="mdi:tree",
-            ),
-            MilaLocationPathSensor(
-                self,
-                "Pollen Status - Weeds",
-                "pollenStation.aggregateWindow[-1].status.weeds",
-                icon="mdi:flower",
-            ),
-            MilaLocationPathSensor(
-                self,
-                "Pollen Status - Grass",
-                "pollenStation.aggregateWindow[-1].status.grass",
-                icon="mdi:grass",
-            ),
-            MilaLocationPathSensor(
-                self,
-                "Pollen Status - Mold",
-                "pollenStation.aggregateWindow[-1].status.mold",
-                icon="mdi:mushroom",
             ),
             # Derived sensors: AQI from PM2.5 and great-circle distance
             # between the household and the chosen outdoor station.

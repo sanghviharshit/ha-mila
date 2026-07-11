@@ -26,10 +26,11 @@ import logging
 from datetime import datetime, timezone
 from typing import Any, Awaitable, Callable, Dict, Iterable, List, Optional
 
-from aiohttp import ClientError, ClientSession
+from aiohttp import ClientError, ClientSession, ClientTimeout
 
 from .enums import (
     ApplianceSensorKind,
+    FanMode,
     FanSpeed,
     PerformanceMode,
     PerformanceProfile,
@@ -70,6 +71,29 @@ _INSTANT_FIELDS = ("instant",)
 # directly so the client doesn't need to know how tokens are stored or
 # refreshed.
 TokenProvider = Callable[[], Awaitable[str]]
+
+# A coroutine that refreshes the token *unconditionally*, bypassing the
+# provider's local expiry check. Used after an HTTP 401: the cached
+# token still looks valid locally (its `expires_at` is in the future)
+# but the server has revoked it, so asking the provider again would
+# just hand back the same rejected token.
+TokenRefresher = Callable[[], Awaitable[Any]]
+
+# Default per-request timeout in seconds. Prevents a hung connection
+# from blocking a service call for aiohttp's 5-minute default. The
+# coordinator overrides this with the user's configured timeout.
+DEFAULT_REQUEST_TIMEOUT = 30
+
+# Fan speed each smart mode should run at when the caller doesn't say
+# otherwise. These mirror the server-side defaults the Mila app uses:
+# Sleep runs at the quietest speed, Turndown at the highest (blast the
+# room clean before bed), and Whitenoise at a middle speed that
+# produces the steady sound the feature is named for.
+_SMART_MODE_DEFAULT_FAN_MODE = {
+    SmartModeKind.Sleep: FanMode.Lowest,
+    SmartModeKind.Turndown: FanMode.Highest,
+    SmartModeKind.Whitenoise: FanMode.Medium,
+}
 
 
 def _coerce_epoch_seconds(value: Any) -> Optional[datetime]:
@@ -136,7 +160,13 @@ class MilaClient:
     `OAuth2Session`.
     """
 
-    def __init__(self, session: ClientSession, token_provider: TokenProvider) -> None:
+    def __init__(
+        self,
+        session: ClientSession,
+        token_provider: TokenProvider,
+        token_refresher: Optional[TokenRefresher] = None,
+        request_timeout: int = DEFAULT_REQUEST_TIMEOUT,
+    ) -> None:
         """Wire up the client.
 
         Args:
@@ -146,9 +176,20 @@ class MilaClient:
             token_provider: coroutine returning a current access token.
                 Called before every request so the cached token can be
                 refreshed transparently.
+            token_refresher: optional coroutine that refreshes the token
+                unconditionally. Called after an HTTP 401 so the retry
+                doesn't reuse the same server-side-revoked token. When
+                omitted, a 401 retry just asks the provider again (and
+                will usually fail the same way).
+            request_timeout: per-request cap in seconds. Public and
+                mutable (`client.request_timeout = ...`) so the
+                coordinator can push the user's configured timeout onto
+                a live client without rebuilding it.
         """
         self._session = session
         self._token_provider = token_provider
+        self._token_refresher = token_refresher
+        self.request_timeout = request_timeout
 
     async def execute(
         self,
@@ -161,12 +202,16 @@ class MilaClient:
 
         Retries on the transient error classes a remote API can return:
 
-        * HTTP 429 — back off exponentially (capped at 30 s) and retry.
-        * HTTP 401 — request a fresh token on the next loop iteration and
-          retry; bail out after two consecutive 401s (the refresh token
-          itself must be invalid in that case).
-        * HTTP 5xx — short back-off (capped at 5 s) and retry.
-        * Transport error from aiohttp — small back-off and retry.
+        * HTTP 429: back off exponentially (capped at 30 s) and retry.
+        * HTTP 401: force an unconditional token refresh (via
+          `token_refresher`) inside this same iteration, then retry
+          with the new token. Bail out with `OAuthError` after the
+          second 401 (the refresh token itself must be invalid in that
+          case). The two 401s are counted cumulatively across the whole
+          call, not required to be back-to-back.
+        * HTTP 5xx: short back-off (capped at 5 s) and retry.
+        * Transport error / timeout from aiohttp: small back-off and
+          retry.
 
         Anything else (4xx other than 401/429, GraphQL `errors` array)
         raises immediately so the caller sees the failure on the first
@@ -190,10 +235,12 @@ class MilaClient:
         if variables:
             payload["variables"] = variables
 
-        # Counter for *consecutive* HTTP 401s. We tolerate one (the cached
-        # token may simply have expired between coordinator polls and a
-        # refresh wasn't yet triggered) but bail on the second; that
-        # signals the refresh token itself is no longer accepted.
+        # Cumulative count of HTTP 401s seen during this call (not reset
+        # between attempts, so they need not be back-to-back). We
+        # tolerate one (the cached token may have expired between
+        # coordinator polls and a refresh wasn't yet triggered; we force
+        # one below and retry) but bail on the second, which signals the
+        # refresh token itself is no longer accepted.
         auth_errors = 0
         # Keep the last HTTP status / body around so the eventual
         # `MilaError` after exhausting retries carries a useful message.
@@ -205,8 +252,13 @@ class MilaClient:
             # provider knows whether to return a cached one or refresh.
             try:
                 token = await self._token_provider()
-            except OAuthError:
-                # The provider already wrapped this; just re-raise.
+            except MilaError:
+                # The provider already classified this: OAuthError for a
+                # genuine credential rejection (subclass of MilaError),
+                # plain MilaError for a transient failure like the auth
+                # server being unreachable. Re-raise untouched so the
+                # coordinator maps each to the right HA behaviour
+                # (reauth prompt vs automatic retry).
                 raise
             except Exception as ex:
                 # Anything else from the provider is unexpected. Treat as
@@ -221,7 +273,15 @@ class MilaClient:
 
             try:
                 async with self._session.post(
-                    GRAPHQL_URL, json=payload, headers=headers
+                    GRAPHQL_URL,
+                    json=payload,
+                    headers=headers,
+                    # Explicit cap so a hung connection can't stall a
+                    # service call for aiohttp's 5-minute default. The
+                    # coordinator additionally wraps *reads* in its own
+                    # timeout; this one is what protects the write paths
+                    # (fan speed, smart modes, set_bedtime).
+                    timeout=ClientTimeout(total=self.request_timeout),
                 ) as resp:
                     last_status = resp.status
                     # Read the body as text once; we re-parse it as JSON
@@ -242,9 +302,20 @@ class MilaClient:
                             raise OAuthError(
                                 "Repeated 401 responses; token appears invalid"
                             )
-                        # One 401 might just mean the token rotated
-                        # between fetch and request. Loop around so the
-                        # provider can hand us a fresh one.
+                        # A 401 with a locally-valid token means the
+                        # server revoked it early (password change,
+                        # session purge). The provider's expiry check
+                        # would hand back the same cached token, so ask
+                        # the auth layer for an unconditional refresh
+                        # before retrying. That path also runs the
+                        # stored-password fallback, letting the
+                        # integration heal itself instead of escalating
+                        # straight to a reauth prompt. Refresh failures
+                        # propagate with the classification the auth
+                        # layer already gave them (OAuthError vs
+                        # MilaError).
+                        if self._token_refresher is not None:
+                            await self._token_refresher()
                         continue
 
                     if resp.status >= 500:
@@ -281,7 +352,10 @@ class MilaClient:
 
                     _coerce_scalars_in_place(data)
                     return data
-            except ClientError as ex:
+            except (ClientError, asyncio.TimeoutError) as ex:
+                # ClientError covers DNS/TLS/connection failures;
+                # asyncio.TimeoutError is what our per-request
+                # ClientTimeout raises when the total cap is hit.
                 if attempt + 1 >= max_retries:
                     raise MilaError(f"Mila API transport error: {ex}") from ex
                 await asyncio.sleep(min(5, 1 + attempt))
@@ -403,14 +477,17 @@ class MilaApi:
         kind: SmartModeKind,
         is_enabled: bool,
         *,
-        fan_mode: str = "Medium",
+        fan_mode: FanMode | str | None = None,
     ) -> None:
         """Toggle a single smart mode on or off.
 
         For Sleep/Turndown/Whitenoise the server requires a `fanMode`
-        argument; we default to `Medium` because that matches what the
-        Mila mobile app sends. If the caller wants a different speed
-        they can override it.
+        argument. When the caller doesn't specify one we use the
+        mode-appropriate default from `_SMART_MODE_DEFAULT_FAN_MODE`
+        (Sleep -> Lowest, Turndown -> Highest, Whitenoise -> Medium),
+        matching what the Mila mobile app sends. Sending one flat value
+        for all three would, for example, run the fan at Medium all
+        night when the user enables Sleep.
 
         For any kind not in `_SMART_MODE_MUTATION_NAME` (currently none,
         but the check is here for future server-side removals), we log
@@ -427,8 +504,12 @@ class MilaApi:
             "roomId": str(room_id),
             "isEnabled": bool(is_enabled),
         }
-        if kind in {SmartModeKind.Sleep, SmartModeKind.Turndown, SmartModeKind.Whitenoise}:
-            variables["fanMode"] = fan_mode
+        if kind in _SMART_MODE_DEFAULT_FAN_MODE:
+            # `str()` collapses both enum members and raw strings to the
+            # bare value the GraphQL variable expects.
+            variables["fanMode"] = str(
+                fan_mode if fan_mode is not None else _SMART_MODE_DEFAULT_FAN_MODE[kind]
+            )
         await self._client.execute(mutation, variables)
 
     # ----- Helpers (no I/O) -------------------------------------------

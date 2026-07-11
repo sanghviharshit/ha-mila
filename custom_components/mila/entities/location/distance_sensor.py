@@ -45,17 +45,23 @@ class MilaLocationDistanceSensor(MilaLocationSensor):
         we leave the value as-is so HA's metric unit handling is
         consistent.
         """
-        try:
-            location_point = (
-                float(self.device.get_value("address.point.lat")),
-                float(self.device.get_value("address.point.lon")),
-            )
-            station_point = (
-                float(self.device.get_value("outdoorStation.point.lat")),
-                float(self.device.get_value("outdoorStation.point.lon")),
-            )
+        # Any of the four coordinates can be missing: accounts without
+        # a geocoded address, or without a nearby outdoor station.
+        # That's routine, so report "unknown" without touching the log;
+        # ERROR-with-traceback here used to fire on every poll for
+        # affected accounts.
+        lat = self.device.get_value("address.point.lat")
+        lon = self.device.get_value("address.point.lon")
+        station_lat = self.device.get_value("outdoorStation.point.lat")
+        station_lon = self.device.get_value("outdoorStation.point.lon")
+        if None in (lat, lon, station_lat, station_lon):
+            return None
 
-            val = geodesic(location_point, station_point).km
+        try:
+            val = geodesic(
+                (float(lat), float(lon)),
+                (float(station_lat), float(station_lon)),
+            ).km
             if not self._is_metric:
                 val = DistanceConverter.convert(
                     val, UnitOfLength.KILOMETERS, UnitOfLength.MILES
@@ -64,9 +70,12 @@ class MilaLocationDistanceSensor(MilaLocationSensor):
             # Two decimal places matches the precision of Mila's own
             # nearest-station UI.
             return round(val, 2)
-        except Exception as ex:
-            _LOGGER.error(
-                "Error getting native value for %s", self.name, exc_info=ex
+        except (TypeError, ValueError) as ex:
+            # Malformed coordinates (non-numeric strings, out-of-range
+            # values geopy rejects). Unexpected but still per-poll, so
+            # keep it at debug and surface "unknown".
+            _LOGGER.debug(
+                "Could not compute station distance for %s: %s", self.name, ex
             )
             return None
 

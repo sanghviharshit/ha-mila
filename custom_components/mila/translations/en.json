@@ -3,11 +3,12 @@
         "error": {
             "cannot_connect": "Cannot connect",
             "invalid_auth": "Invalid login",
-            "unknown": "Unknown error occured"
+            "unknown": "Unknown error occurred"
           },
         "abort": {
             "already_configured": "Account already configured",
-            "reauth_successful": "Reauthentication was successful!"
+            "reauth_successful": "Reauthentication was successful!",
+            "unknown": "Unexpected error"
         },
         "step": {
             "user": {

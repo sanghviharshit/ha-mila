@@ -25,6 +25,7 @@ app uses the same approach.
 """
 from __future__ import annotations
 
+import asyncio
 from typing import Any, cast
 
 from homeassistant.config_entries import ConfigEntry
@@ -32,7 +33,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers import aiohttp_client, config_entry_oauth2_flow
 
 from .api import OAuthError, refresh_token, request_token
-from .const import DOMAIN
+from .const import CONF_TOKEN, DOMAIN
 
 
 class MilaConfigEntryAuth:
@@ -67,6 +68,13 @@ class MilaConfigEntryAuth:
         self.session = config_entry_oauth2_flow.OAuth2Session(
             hass, config_entry, implementation
         )
+        # Serializes `async_force_refresh_token`. Keycloak rotates the
+        # refresh token on every grant, so two concurrent forced
+        # refreshes would race: the second would present the
+        # already-consumed refresh token and be rejected. The lock plus
+        # the staleness check inside the method collapse a burst of
+        # concurrent 401s into a single grant.
+        self._force_refresh_lock = asyncio.Lock()
 
     async def async_get_access_token(self) -> str:
         """Return a valid access token, refreshing it transparently if needed.
@@ -77,6 +85,42 @@ class MilaConfigEntryAuth:
         """
         await self.session.async_ensure_token_valid()
         return cast(str, self.session.token["access_token"])
+
+    async def async_force_refresh_token(self) -> str:
+        """Refresh the token now, regardless of its local expiry stamp.
+
+        `async_ensure_token_valid` only refreshes when the locally
+        stored `expires_at` says the token is stale. If Mila's server
+        revokes a token early (password change, server-side session
+        purge), the local copy still looks valid and every GraphQL
+        request just gets a 401 back. `MilaClient` calls this after a
+        401 so its retry runs with a genuinely fresh token, exercising
+        the same refresh-then-password-grant fallback chain as a normal
+        expiry. Without it the integration would escalate straight to a
+        reauth prompt even though the stored credentials could have
+        healed the session automatically.
+
+        Mirrors what `OAuth2Session.async_ensure_token_valid` does after
+        a refresh: persist the new bundle onto the config entry so it
+        survives restarts.
+        """
+        # Snapshot before waiting on the lock: if another caller
+        # refreshes while we queue, the token will have changed by the
+        # time we get in, and we can reuse theirs instead of burning a
+        # second grant against an already-rotated refresh token.
+        seen_access_token = self.session.token.get("access_token")
+        async with self._force_refresh_lock:
+            current = self.session.token
+            if current.get("access_token") != seen_access_token:
+                return cast(str, current["access_token"])
+            new_token = await self._implementation.async_refresh_token(
+                dict(current)
+            )
+            self.hass.config_entries.async_update_entry(
+                self.session.config_entry,
+                data={**self.session.config_entry.data, CONF_TOKEN: new_token},
+            )
+            return cast(str, new_token["access_token"])
 
     async def async_close(self) -> None:
         """Release any resources the implementation owns.
@@ -102,8 +146,13 @@ class MilaOauthImplementation(
         self.hass = hass
         # Stored credentials. We need them for the fallback path inside
         # `_async_refresh_token` (when the refresh token itself is no
-        # longer accepted). Storing the password isn't ideal but HA's
-        # config-entry encryption protects it on disk.
+        # longer accepted). Be aware that Home Assistant persists
+        # config-entry data as plain JSON under `.storage/` (readable
+        # only by the HA user), so the password is NOT encrypted at
+        # rest. Keeping it is a deliberate tradeoff: it lets the
+        # integration heal itself with a fresh password grant instead
+        # of interrupting the user with a reauth flow every time
+        # Keycloak drops a refresh token.
         self._username = config_entry.data["email"]
         self._password = config_entry.data["password"]
         # Reuse HA's shared aiohttp session: connections are pooled
@@ -144,34 +193,48 @@ class MilaOauthImplementation(
         """Refresh a near-expiry token, falling back to password grant.
 
         Called by `OAuth2Session.async_ensure_token_valid`. We try the
-        cheap path first (refresh-token grant); if that fails we fall
-        back to a full password-grant request using the credentials we
-        stored at setup time. The fallback means a temporary
-        refresh-token expiry won't force the user through a reauth
-        flow.
+        cheap path first (refresh-token grant); if that fails with a
+        *rejection* we fall back to a full password-grant request using
+        the credentials we stored at setup time. The fallback means a
+        server-side refresh-token invalidation won't force the user
+        through a reauth flow as long as the password still works.
 
-        If *both* fail (typical when the user changed their password
-        on milacares.com), we re-raise the original refresh error so
-        the coordinator promotes it to `ConfigEntryAuthFailed` and HA
-        prompts for new credentials.
+        Transient failures (`MilaError`: network down, Keycloak 5xx)
+        deliberately propagate without triggering the fallback: the
+        password grant would fail on the same broken network anyway,
+        and the coordinator translates `MilaError` into a retry rather
+        than a reauth prompt.
+
+        If *both* grants are rejected (typical when the user changed
+        their password on milacares.com), we re-raise the original
+        refresh error so the coordinator promotes it to
+        `ConfigEntryAuthFailed` and HA prompts for new credentials.
         """
         try:
             # Happy path: hand the existing refresh token to Keycloak
             # and get a new pair back.
             return await refresh_token(self._session, token["refresh_token"])
         except (OAuthError, KeyError) as ex:
-            # Either the refresh-token call failed (OAuthError) or the
+            # Either the refresh token was rejected (OAuthError) or the
             # stored token dict didn't have a `refresh_token` at all
             # (KeyError). Try the password-grant fallback.
             try:
                 return await request_token(
                     self._session, self._username, self._password
                 )
-            except OAuthError:
-                # Both attempts failed. Surface the *original* error
-                # because "Token refresh failed" usually tells the
-                # user more than "Token request failed" in logs.
-                raise ex from None
+            except OAuthError as fallback_ex:
+                # Both grants rejected. Surface the *original* error
+                # when it carries the classification (OAuthError),
+                # because "Token refresh rejected" usually tells the
+                # user more than "Token request rejected" in logs. But
+                # when the original was a KeyError (a token dict with
+                # no refresh_token at all), re-raising it would let an
+                # unclassified KeyError escape into callers that treat
+                # unknown exceptions inconsistently; surface the
+                # fallback's properly classified OAuthError instead.
+                if isinstance(ex, OAuthError):
+                    raise ex from None
+                raise fallback_ex from ex
 
     async def async_close(self) -> None:
         """Release any owned resources.

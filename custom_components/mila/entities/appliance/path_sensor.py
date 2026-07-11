@@ -48,7 +48,8 @@ class MilaAppliancePathSensor(MilaApplianceSensor):
         # dotted syntax that benedict uses.
         self._data_path = data_path
         # Optional post-processor (e.g. stringify an enum, attach UTC to
-        # a naive datetime). Called only when the raw value is found.
+        # a naive datetime). Called only when the raw value is present
+        # (see native_value), so converters never have to handle None.
         self._convert_function = convert_function
 
     @property
@@ -62,21 +63,22 @@ class MilaAppliancePathSensor(MilaApplianceSensor):
 
     @property
     def native_value(self):
-        """Read + (optionally) convert the value at the configured path."""
+        """Read + (optionally) convert the value at the configured path.
+
+        `get_value` honours the None contract (missing path -> None), so
+        a fresh setup where e.g. filter dates aren't reported yet simply
+        yields None ("unknown" in HA) without raising. The converter is
+        applied only to a present value, so converters never see None.
+        """
         try:
             val = self.device.get_value(self._data_path)
-            if self._convert_function is not None:
+            if val is not None and self._convert_function is not None:
                 val = self._convert_function(val)
             return val
-        except KeyError:
-            # benedict raises KeyError for missing paths; that's
-            # expected on a fresh setup (e.g. filter dates before the
-            # appliance reports them). Surface as `None` so HA renders
-            # it as "unknown" rather than logging an error.
-            return None
         except Exception as ex:
-            # Anything else is unexpected. Log with traceback so the
-            # user can file an issue without us silently dropping data.
+            # Defensive: a converter could still raise on malformed data.
+            # Log with traceback so the user can file an issue without us
+            # silently dropping data.
             _LOGGER.error(
                 "Error getting native value for %s", self.name, exc_info=ex
             )

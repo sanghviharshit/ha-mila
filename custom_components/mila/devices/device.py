@@ -128,9 +128,11 @@ class MilaDevice:
         return DeviceInfo(
             identifiers={(DOMAIN, self.id)},
             manufacturer=MANUFACTURER,
-            model="Mila Air Purifier",
+            model=self._get_model(),
             name=self.name,
-            sw_version=self._get_software_version(),
+            # Empty string would render as a blank field on the device
+            # card; None makes HA omit the row entirely.
+            sw_version=self._get_software_version() or None,
         )
 
     # ----- Coordinator-data accessors ---------------------------------
@@ -140,18 +142,24 @@ class MilaDevice:
 
     @property
     def _appliance_data(self) -> benedict:
-        """Every appliance the account owns, keyed by id."""
-        return benedict(self._coordinator.data.get(DATAKEY_APPLIANCE, {}))
+        """Every appliance the account owns, keyed by id.
+
+        `coordinator.data` is None until the first refresh assigns it;
+        devices are constructed *during* that refresh, so tolerate the
+        None here rather than trusting call order.
+        """
+        return benedict((self._coordinator.data or {}).get(DATAKEY_APPLIANCE) or {})
 
     @property
     def _account_data(self) -> benedict:
-        """Owner profile (email + name). Populated only on first refresh."""
-        return benedict(self._coordinator.data.get(DATAKEY_ACCOUNT, {}))
+        """Owner profile (email + name). Fetched on the first refresh and
+        carried forward by the coordinator on every later poll."""
+        return benedict((self._coordinator.data or {}).get(DATAKEY_ACCOUNT) or {})
 
     @property
     def _location_data(self) -> benedict:
         """Every location, keyed by `loc_<id>` (matching the coordinator)."""
-        return benedict(self._coordinator.data.get(DATAKEY_LOCATION, {}))
+        return benedict((self._coordinator.data or {}).get(DATAKEY_LOCATION) or {})
 
     @property
     def _device_data(self) -> benedict:
@@ -161,11 +169,15 @@ class MilaDevice:
     def get_value(self, data_path: str):
         """Read a dotted-path value out of this device's data.
 
-        Returns `None` if any segment is missing (benedict behaviour).
-        Used heavily by entities to avoid scattering `.get(...).get(...)`
-        chains.
+        Returns `None` if any segment along the path is missing or null.
+        This None contract is what lets entity properties read cached
+        data without try/except at every call site: a payload that lost
+        a branch (offline appliance, account change) degrades to
+        "unknown" state instead of a KeyError aborting the entity's
+        state write. Note that benedict's `[]` indexing raises on
+        missing paths; `.get` is the spelling that honours the contract.
         """
-        return self._device_data[data_path]
+        return self._device_data.get(data_path)
 
     def add_update_listener(self, callback: CALLBACK_TYPE):
         """Subscribe a callback to coordinator updates.
@@ -206,3 +218,12 @@ class MilaDevice:
     def _get_software_version(self) -> str:
         """Firmware version string for `DeviceInfo`. Default: empty."""
         return ""
+
+    def _get_model(self) -> str:
+        """Model string for `DeviceInfo`.
+
+        Defaults to the purifier because that's the common case;
+        non-appliance subclasses (locations) override so they don't
+        register in HA's device registry as air purifiers.
+        """
+        return "Mila Air Purifier"

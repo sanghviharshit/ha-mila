@@ -10,7 +10,7 @@ multiply by `TVOC_PPB_TO_UGM3` in the device wrapper's entity list.
 """
 from __future__ import annotations
 
-from typing import List, Optional
+from typing import Optional
 
 from homeassistant.components.sensor import SensorDeviceClass, SensorStateClass
 
@@ -56,15 +56,23 @@ class MilaApplianceMeasurementSensor(MilaApplianceSensor):
         # `sensors` was populated by the coordinator from the
         # GET_APPLIANCES response. Each element looks like:
         #   {"kind": "Aqi", "latest": {"instant": ..., "value": 42.0}}
-        sensors: List = self.device.get_value("sensors")
+        # Every level can legitimately be missing or null: `sensors`
+        # for an offline appliance, `latest` when no sample landed in
+        # the query's precision window. Degrade to None ("unknown" in
+        # HA) instead of raising on every state write.
+        sensors = self.device.get_value("sensors") or []
         sensor = next(
-            (s for s in sensors if s["kind"] == self._sensor_kind), None
+            (s for s in sensors if s.get("kind") == self._sensor_kind), None
         )
         if sensor is None:
             return None
-        value = sensor["latest"]["value"]
+        latest = sensor.get("latest") or {}
+        value = latest.get("value")
+        if value is None:
+            return None
         # Apply the optional unit conversion (currently only VOC uses
-        # this). Multiplying by None would be wrong, hence the guard.
+        # this). Multiplying by None would be wrong, hence the None
+        # early-return above.
         if self._uom_conversion_factor:
             return value * self._uom_conversion_factor
         return value

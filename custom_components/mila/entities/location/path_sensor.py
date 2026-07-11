@@ -43,16 +43,17 @@ class MilaLocationPathSensor(MilaLocationSensor):
 
     @property
     def native_value(self):
-        """Look up the path; convert if requested."""
+        """Look up the path; convert a present value if requested.
+
+        `get_value` returns None for a missing path (common on accounts
+        without a nearby pollen station), so the converter only ever
+        runs on a real value.
+        """
         try:
             val = self.device.get_value(self._data_path)
-            if self._convert_function is not None:
+            if val is not None and self._convert_function is not None:
                 val = self._convert_function(val)
             return val
-        except KeyError:
-            # Missing path -> report None. Common for pollen fields on
-            # accounts without nearby pollen stations.
-            return None
         except Exception as ex:
             _LOGGER.error(
                 "Error getting native value for %s", self.name, exc_info=ex

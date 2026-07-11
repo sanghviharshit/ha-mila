@@ -38,6 +38,11 @@ class MilaSoundModeSelect(MilaSelect):
 
     def __init__(self, device: MilaAppliance):
         super().__init__(device, "Sound Mode", "mdi:volume-high")
+        # Last unrecognised soundsConfig value we warned about. HA reads
+        # `current_option` on every coordinator refresh, so warning
+        # unconditionally would repeat the same line every poll; this
+        # limits it to once per distinct unknown value.
+        self._warned_unknown_value: Optional[str] = None
 
     @property
     def unique_id(self) -> str:
@@ -51,24 +56,29 @@ class MilaSoundModeSelect(MilaSelect):
 
     @property
     def current_option(self) -> Optional[str]:
-        """Current enum value, fetched straight from cached room data.
+        """Humanised label for the current `Room.soundsConfig` value.
 
-        Returns the raw enum value (e.g. "DaytimeOnly") rather than the
-        humanised label because HA's `SelectEntity` validates the
-        returned string against `options`. We include both forms in
-        `options` (see below) so either matches.
-
-        TODO consideration: ideally we'd convert here so the UI shows
-        the humanised label, but doing so requires the corresponding
-        change in `options`. The current shape works because the API
-        returns one of the enum strings directly.
+        The API returns the raw enum string ("DaytimeOnly"). HA's
+        `SelectEntity` nulls out any current option that isn't present
+        in `options`, and `options` holds the humanised labels, so the
+        raw value must be translated here. Without the translation,
+        "Enabled" and "Disabled" happened to match (single words look
+        the same either way) but "DaytimeOnly" rendered as a permanent
+        "unknown".
         """
+        raw = self.device.get_value("room.soundsConfig")
+        if raw is None:
+            return None
         try:
-            return self.device.get_value("room.soundsConfig")
-        except Exception as ex:
-            _LOGGER.error(
-                "Error getting sound mode for %s", self.name, exc_info=ex
-            )
+            return MODE_MAPPING[SoundsConfig(raw)]
+        except ValueError:
+            # The server sent a value our enum doesn't know (a mode
+            # added upstream). Surface "unknown" rather than crashing,
+            # and log it once per distinct value so we learn about the
+            # addition without flooding the log on every poll.
+            if raw != self._warned_unknown_value:
+                self._warned_unknown_value = raw
+                _LOGGER.warning("Unknown Mila sounds config value: %r", raw)
             return None
 
     @property

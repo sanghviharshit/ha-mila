@@ -25,6 +25,7 @@ from homeassistant.const import (
     SIGNAL_STRENGTH_DECIBELS_MILLIWATT,
     UnitOfTemperature,
 )
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity import Entity
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 
@@ -82,14 +83,23 @@ class MilaAppliance(MilaDevice):
           1. The custom name the user set in the Mila app.
           2. The room's name ("Bedroom", "Office", ...).
           3. The room kind humanised: `LivingRoom` -> `Living Room`.
+          4. The raw appliance id (payload vanished, e.g. the device
+             was removed from the account; keeps logs and the device
+             card readable instead of showing "None").
         """
         # `room.kind` is a PascalCase enum (`LivingRoom`, `KidsBedroom`,
         # ...). Splitting on camel-case boundaries makes it readable.
-        room_kind = " ".join(camel_case_split(str(self._device_data["room.kind"])))
+        room_kind = self._device_data.get("room.kind")
+        room_kind_label = (
+            " ".join(camel_case_split(str(room_kind)))
+            if room_kind is not None
+            else None
+        )
         return coalesce(
-            self._device_data["name"] or None,
-            self._device_data["room.name"] or None,
-            room_kind,
+            self._device_data.get("name") or None,
+            self._device_data.get("room.name") or None,
+            room_kind_label,
+            self.id,
         )
 
     @property
@@ -98,8 +108,20 @@ class MilaAppliance(MilaDevice):
 
         Every write mutation in the live API is room-scoped, so we
         cache this for convenience. Read-only on the appliance side.
+
+        Raises a user-facing error instead of a bare KeyError when the
+        room is missing from cached data: this is only reached from
+        write paths (service calls, fan/switch commands), where a clear
+        message in the service response beats a traceback.
         """
-        return self._device_data["room.id"]
+        room_id = self._device_data.get("room.id")
+        if room_id is None:
+            raise HomeAssistantError(
+                f"Mila appliance {self.id} has no room data in the last API "
+                "response (was it removed from the account?); cannot send the "
+                "command"
+            )
+        return room_id
 
     @property
     def available(self) -> bool:
@@ -107,14 +129,25 @@ class MilaAppliance(MilaDevice):
 
         The API returns `state.actualMode = null` when the appliance is
         offline. Treating that as unavailable greys out the entity in
-        the UI rather than showing stale numbers.
+        the UI rather than showing stale numbers. A device missing from
+        the payload entirely resolves to None here too, so removed
+        appliances also read as unavailable rather than raising.
         """
-        return self._device_data["state.actualMode"] is not None
+        return self._device_data.get("state.actualMode") is not None
 
     @property
     def _device_data(self) -> benedict:
-        """The slice of cached data that belongs to this appliance."""
-        return self._appliance_data[self.id]
+        """The slice of cached data that belongs to this appliance.
+
+        Falls back to an empty benedict when this appliance id is
+        absent from the latest payload (e.g. the user removed the
+        device from their Mila account after setup). Every downstream
+        `.get` read then resolves to None, which flows into
+        `available` -> False, so the orphaned entities grey out instead
+        of raising KeyError on every coordinator refresh.
+        """
+        data = self._appliance_data.get(self.id)
+        return benedict(data) if data is not None else benedict()
 
     # ----- Convenience accessors used by entities ---------------------
 
@@ -360,5 +393,9 @@ class MilaAppliance(MilaDevice):
         ]
 
     def _get_software_version(self) -> str:
-        """Firmware version for the device-info card."""
-        return self._device_data["state.firmware.version"]
+        """Firmware version for the device-info card.
+
+        Empty string when the payload is missing (offline appliance);
+        the base class turns that into None so HA omits the row.
+        """
+        return self._device_data.get("state.firmware.version") or ""

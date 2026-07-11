@@ -37,7 +37,13 @@ class MilaLocationAqiSensor(MilaLocationSensor):
     @property
     def native_value(self):
         """Convert the cached PM2.5 ug/m^3 reading into an EPA AQI value."""
+        # A missing reading (no station near this account, or the
+        # location dropped out of the payload) is a routine condition:
+        # report "unknown" quietly. Logging it at ERROR level would
+        # spam the log on every poll for affected accounts.
         pm25 = self.device.get_value("outdoorStation.sensor.latest.value")
+        if pm25 is None:
+            return None
         try:
             # `to_iaqi` expects the concentration as a string (it uses
             # arbitrary-precision Decimal under the hood) and returns
@@ -46,10 +52,14 @@ class MilaLocationAqiSensor(MilaLocationSensor):
                 aqi.to_iaqi(aqi.POLLUTANT_PM25, str(pm25), algo=aqi.ALGO_EPA)
             )
         except Exception as ex:
-            # python-aqi can raise on out-of-range / non-numeric inputs.
-            # Log but surface None so the entity goes "unknown" rather
-            # than disappearing from HA's UI.
-            _LOGGER.error(
-                "Error getting native value for %s", self.name, exc_info=ex
+            # python-aqi can raise on out-of-range / non-numeric inputs
+            # (e.g. a wildfire reading beyond the EPA table). Still a
+            # per-poll condition, so keep it out of the error log; the
+            # entity shows "unknown" and debug logging has the details.
+            _LOGGER.debug(
+                "Could not compute AQI for %s from PM2.5 value %r: %s",
+                self.name,
+                pm25,
+                ex,
             )
             return None

@@ -15,6 +15,7 @@ from typing import Any, Dict, Optional
 
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
+from ...const import ATTRIBUTION
 from ...devices import MilaDevice
 
 
@@ -26,6 +27,10 @@ class MilaEntity(CoordinatorEntity):
     helpers (`device.get_value("room.kind")`) and the device's
     `DeviceInfo` block.
     """
+
+    # Shown by HA under each entity's "Attribution" attribute so users
+    # can see where the data ultimately comes from.
+    _attr_attribution = ATTRIBUTION
 
     def __init__(self, device: MilaDevice):
         # `CoordinatorEntity.__init__` registers an internal listener
@@ -56,6 +61,15 @@ class MilaEntity(CoordinatorEntity):
 
     @property
     def available(self) -> bool:
-        """Mirror the device's availability so a single offline appliance
-        greys out every one of its entities consistently."""
-        return self.device.available
+        """Combine cloud reachability with per-device availability.
+
+        `CoordinatorEntity.available` (the `super()` term) reflects
+        whether the most recent coordinator poll succeeded. Dropping it
+        would leave entities showing frozen stale values as if live
+        whenever the Mila cloud is unreachable. The device layer then
+        adds its own signal: an appliance reporting
+        `state.actualMode = null` is offline even when the cloud is up,
+        and a single offline appliance greys out every one of its
+        entities consistently.
+        """
+        return super().available and self.device.available

@@ -29,7 +29,6 @@ import logging
 from datetime import timedelta
 from typing import Any, Mapping
 
-import async_timeout
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_SCAN_INTERVAL, CONF_TIMEOUT
 from homeassistant.core import HomeAssistant
@@ -77,24 +76,28 @@ class MilaUpdateCoordinator(DataUpdateCoordinator):
         self._hass = hass
         self._config_entry = config_entry
 
+        # Read configurable tunables out of `entry.options` first so the
+        # client below can be constructed with the user's timeout.
+        # Options are set by the options flow; if the user hasn't
+        # visited it yet, the defaults from `const.py` apply.
+        options = config_entry.options
+        self._timeout = options.get(CONF_TIMEOUT, DEFAULT_TIMEOUT)
+
         # Order matters: implementation -> auth wrapper -> client -> API.
         # The implementation holds credentials; the auth wrapper provides
         # the `async_get_access_token` callable that the client treats as
-        # a TokenProvider; the client knows how to POST to GraphQL; and
-        # MilaApi is the high-level convenience layer everything else uses.
+        # a TokenProvider (plus the unconditional-refresh hook used after
+        # a 401); the client knows how to POST to GraphQL; and MilaApi is
+        # the high-level convenience layer everything else uses.
         oauth_impl = MilaOauthImplementation(hass, config_entry)
         self._auth = MilaConfigEntryAuth(hass, config_entry, oauth_impl)
         self._client = MilaClient(
             aiohttp_client.async_get_clientsession(hass),
             self._auth.async_get_access_token,
+            token_refresher=self._auth.async_force_refresh_token,
+            request_timeout=self._timeout,
         )
         self._api = MilaApi(self._client)
-
-        # Read configurable tunables out of `entry.options`. Options are
-        # set by the options flow; if the user hasn't visited it yet,
-        # the defaults from `const.py` apply.
-        options = config_entry.options
-        self._timeout = options.get(CONF_TIMEOUT, DEFAULT_TIMEOUT)
 
         # `_initialized` flips to True after the first successful refresh.
         # Several methods (e.g. `_async_update_data`) check it to decide
@@ -126,6 +129,10 @@ class MilaUpdateCoordinator(DataUpdateCoordinator):
         reloading the integration when nothing else changed.
         """
         self._timeout = options.get(CONF_TIMEOUT, DEFAULT_TIMEOUT)
+        # Keep the client's per-request cap in sync so write paths (fan
+        # speed, smart modes) honour the new value too, not just the
+        # coordinator-wrapped reads.
+        self._client.request_timeout = self._timeout
         new_delta = timedelta(
             seconds=options.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL)
         )
@@ -134,7 +141,7 @@ class MilaUpdateCoordinator(DataUpdateCoordinator):
         if self.update_interval != new_delta:
             self.update_interval = new_delta
 
-    async def async_setup(self) -> bool:
+    async def async_setup(self) -> None:
         """Run the first refresh and forward setup to entity platforms.
 
         Called from `__init__.async_setup_entry`. The first refresh
@@ -142,9 +149,10 @@ class MilaUpdateCoordinator(DataUpdateCoordinator):
         entities) and also flips `_initialized` to True so subsequent
         refreshes know they don't need to rebuild devices.
 
-        Returns True on success. Any failure raises rather than returns
-        False, so the caller can translate the exception into the right
-        `ConfigEntry*` failure type.
+        Success returns normally; any failure raises, and the caller
+        translates the exception into the right `ConfigEntry*` failure
+        type. There is deliberately no boolean return: a False that no
+        code path could produce invites dead handling upstream.
         """
         _LOGGER.debug("Setting up coordinator")
         # The "first refresh" helper differs from a regular refresh in
@@ -156,7 +164,6 @@ class MilaUpdateCoordinator(DataUpdateCoordinator):
         await self.hass.config_entries.async_forward_entry_setups(
             self._config_entry, PLATFORMS
         )
-        return True
 
     async def async_reset(self) -> bool:
         """Tear the coordinator down on unload or reload.
@@ -195,9 +202,12 @@ class MilaUpdateCoordinator(DataUpdateCoordinator):
         `__init__`. The result becomes `self.data` and triggers
         callbacks on every coordinator listener (every entity).
 
-        Each API call gets its own `async_timeout` block so a hung
+        Each API call gets its own `asyncio.timeout` block so a hung
         request can be cancelled cleanly without dragging the others
-        down with it.
+        down with it. (Stdlib `asyncio.timeout` rather than the
+        third-party `async_timeout` package: HA no longer guarantees
+        the latter is installed, and importing it made the whole
+        integration fail to load on clean modern installs.)
         """
         try:
             data: dict[str, Any] = {}
@@ -211,20 +221,25 @@ class MilaUpdateCoordinator(DataUpdateCoordinator):
                 else []
             )
 
-            # The owner profile rarely changes (email + name). Only
-            # fetch it once, on the first refresh, to save a round trip
-            # on every subsequent poll.
+            # The owner profile rarely changes (email + name). Fetch it
+            # once, on the first refresh, then carry the cached copy
+            # forward on every later poll. Without the carry-forward,
+            # the second refresh would silently drop the account data
+            # (each refresh builds a brand-new `data` dict) and
+            # `MilaDevice._account_data` would read empty forever after.
             if not self._initialized:
-                async with async_timeout.timeout(self._timeout):
+                async with asyncio.timeout(self._timeout):
                     data[DATAKEY_ACCOUNT] = await self._api.get_account()
+            else:
+                data[DATAKEY_ACCOUNT] = (self.data or {}).get(DATAKEY_ACCOUNT)
 
-            async with async_timeout.timeout(self._timeout):
+            async with asyncio.timeout(self._timeout):
                 appliances = await self._api.get_appliances()
             # Index by id so device wrappers can look up their own data
             # via dotted-path benedict access in O(1).
             data[DATAKEY_APPLIANCE] = {a["id"]: a for a in appliances}
 
-            async with async_timeout.timeout(self._timeout):
+            async with asyncio.timeout(self._timeout):
                 locations = await self._api.get_location_data()
             # Location IDs collide with appliance IDs (both integers in
             # general), so prefix with "loc_" when keying for the
@@ -253,7 +268,7 @@ class MilaUpdateCoordinator(DataUpdateCoordinator):
             # mark the data as stale and retry on the next schedule.
             raise UpdateFailed(f"Error communicating with API: {err}") from err
         except asyncio.TimeoutError as err:
-            # Our async_timeout fired. Same handling as MilaError but
+            # Our asyncio.timeout fired. Same handling as MilaError but
             # the message tells the user the timeout value to help them
             # diagnose / tune via the options flow.
             raise UpdateFailed(

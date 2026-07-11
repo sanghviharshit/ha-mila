@@ -61,16 +61,12 @@ CREDENTIALS_SCHEMA = vol.Schema(
     }
 )
 
-# Schema for the options dialog. `vol.In` restricts inputs to the
-# enumerated lists so users can't accidentally type a 1-second interval.
-OPTIONS_SCHEMA = vol.Schema(
-    {
-        vol.Required(CONF_SCAN_INTERVAL, default=DEFAULT_SCAN_INTERVAL): vol.In(
-            VALUES_SCAN_INTERVAL
-        ),
-        vol.Required(CONF_TIMEOUT, default=DEFAULT_TIMEOUT): vol.In(VALUES_TIMEOUT),
-    }
-)
+# The options-dialog schema is built per-request inside
+# `MilaOptionsFlowHandler.async_step_init` (not as a module-level
+# constant) because its defaults must reflect the values the user last
+# saved. A static schema always showed the factory defaults, so simply
+# reopening the dialog and pressing Submit silently reverted any saved
+# options.
 
 
 class MilaConfigFlow(ConfigFlow, domain=DOMAIN):
@@ -92,6 +88,12 @@ class MilaConfigFlow(ConfigFlow, domain=DOMAIN):
         # Used to feed placeholders (like the email being reauthed) into
         # the form's description string in `translations/en.json`.
         self._description_placeholders: dict | None = None
+        # NOTE: the entry being reauthenticated is read from
+        # `self.context["entry_id"]` at the point of use rather than
+        # stashed on an attribute here. Modern ConfigFlow defines
+        # `_reauth_entry_id` as a read-only property, so shadowing that
+        # name (or risking a future collision with another) would raise
+        # AttributeError in this constructor and break every flow.
         super().__init__()
 
     @property
@@ -170,8 +172,13 @@ class MilaConfigFlow(ConfigFlow, domain=DOMAIN):
         self._user_input[CONF_EMAIL] = extra_inputs[CONF_EMAIL]
 
         # Use the email as a unique identifier so the user can't
-        # configure the same account twice.
-        if self.unique_id is None:
+        # configure the same account twice. Re-derive it on EVERY
+        # submission of the initial-setup form, not just the first: the
+        # flow instance survives an error round-trip, so a user who
+        # corrects a typo'd email after a failed attempt would otherwise
+        # create an entry stamped with the old email's unique_id,
+        # breaking duplicate prevention and future reauth matching.
+        if step_id == "user":
             await self.async_set_unique_id(self._user_input[CONF_EMAIL])
             self._abort_if_unique_id_configured()
 
@@ -216,8 +223,20 @@ class MilaConfigFlow(ConfigFlow, domain=DOMAIN):
 
         # Reauth path: update the existing entry's data with the new
         # password / token and force a reload so the running coordinator
-        # picks them up immediately.
-        entry = await self.async_set_unique_id(self.unique_id)
+        # picks them up immediately. The entry is resolved via the id HA
+        # stamped into the flow context when it started the reauth flow;
+        # unlike a unique_id lookup this also works for entries created
+        # before this integration set unique ids.
+        entry_id = self.context.get("entry_id")
+        entry = (
+            self.hass.config_entries.async_get_entry(entry_id)
+            if entry_id
+            else None
+        )
+        if entry is None:
+            # The entry vanished while the flow was open (user removed
+            # the integration mid-reauth). Nothing left to update.
+            return self.async_abort(reason="unknown")
         self.hass.config_entries.async_update_entry(entry, data=self._user_input)
         await self.hass.config_entries.async_reload(entry.entry_id)
         return self.async_abort(reason="reauth_successful")
@@ -231,7 +250,12 @@ class MilaConfigFlow(ConfigFlow, domain=DOMAIN):
     async def async_step_reauth(
         self, entry_data: Mapping[str, Any]
     ) -> FlowResult:
-        """Triggered by `ConfigEntryAuthFailed` from the coordinator."""
+        """Triggered by `ConfigEntryAuthFailed` from the coordinator.
+
+        HA stamps this flow's context with the id of the entry that
+        triggered the reauth; the confirm step reads it from there to
+        update exactly that entry.
+        """
         await self.async_set_unique_id(entry_data[CONF_EMAIL])
         # Remember the existing entry so the confirm step can keep the
         # email unchanged.
@@ -262,8 +286,7 @@ class MilaOptionsFlowHandler(OptionsFlow):
     """
 
     def __init__(self, entry: ConfigEntry) -> None:
-        # Stored for symmetry / future use; we don't currently need it
-        # because saved options come back to us via the callback.
+        # Needed to pre-fill the form with the currently saved options.
         self.entry = entry
 
     async def async_step_init(
@@ -274,4 +297,22 @@ class MilaOptionsFlowHandler(OptionsFlow):
             # `async_create_entry` here writes to `entry.options`, not
             # `entry.data`. HA fires the update listener afterwards.
             return self.async_create_entry(title="", data=user_input)
-        return self.async_show_form(step_id="init", data_schema=OPTIONS_SCHEMA)
+
+        # Build the schema at request time so the defaults reflect what
+        # the user last saved rather than the integration's factory
+        # defaults. `vol.In` restricts inputs to the enumerated lists so
+        # users can't accidentally pick a 1-second poll interval.
+        options = self.entry.options
+        schema = vol.Schema(
+            {
+                vol.Required(
+                    CONF_SCAN_INTERVAL,
+                    default=options.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL),
+                ): vol.In(VALUES_SCAN_INTERVAL),
+                vol.Required(
+                    CONF_TIMEOUT,
+                    default=options.get(CONF_TIMEOUT, DEFAULT_TIMEOUT),
+                ): vol.In(VALUES_TIMEOUT),
+            }
+        )
+        return self.async_show_form(step_id="init", data_schema=schema)

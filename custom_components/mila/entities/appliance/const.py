@@ -5,13 +5,6 @@ because these values are only meaningful inside the appliance entity
 tree.
 """
 
-# Mila reports the fan's actual RPM via the FanSpeed sensor. The bounds
-# below are documented in the gist and observed empirically: real units
-# never sit below ~500 RPM (the docs say 600 but my unit idles at 500)
-# and never above 2000.
-MAX_FAN_RPM = 2000
-MIN_FAN_RPM = 500  # docs say 600; empirical floor on at least one unit
-
 # Preset modes exposed by the fan entity. We deliberately keep just the
 # two natural ones (Automagic = automatic AQI-driven, Manual = user-set
 # speed). Smart modes get their own switch entities rather than turning

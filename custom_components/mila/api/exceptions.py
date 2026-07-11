@@ -29,10 +29,18 @@ class MilaError(Exception):
 
 
 class OAuthError(MilaError):
-    """Raised when authentication fails or the token cannot be refreshed.
+    """Raised when the auth server actively rejects the grant.
 
     Signals an unrecoverable auth state: the user must reauthenticate.
-    Triggered for HTTP 400/401 token responses, missing `access_token` in
-    the response body, and repeated 401s on data calls (which strongly
-    suggest the refresh token itself is no longer valid).
+    Triggered for HTTP 400/401/403 token responses (the server
+    understood the request and refused it) and for repeated 401s on
+    data calls (which strongly suggest the refresh token itself is no
+    longer valid).
+
+    Note the deliberate boundary: a malformed *success* response (200
+    with no `access_token`), an HTTP 5xx, a timeout, or a transport
+    error all raise plain `MilaError` instead, because they say nothing
+    about whether the credentials are valid and should retry rather
+    than prompt the user to reauthenticate. See `api/auth.py` for the
+    classification.
     """

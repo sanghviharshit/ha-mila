@@ -13,6 +13,25 @@ caller. In this integration the caller is Home Assistant's
 `config_entry_oauth2_flow.OAuth2Session`, which persists the token dict
 to the config entry on disk.
 
+Error classification contract (the rest of the integration relies on
+this, so treat it as an API):
+
+* `OAuthError`  -> the auth server understood the request and rejected
+                   it (wrong password, revoked refresh token, disabled
+                   account). Only user action can fix it; the coordinator
+                   promotes it to `ConfigEntryAuthFailed`, which halts
+                   polling and prompts for reauthentication.
+* `MilaError`   -> everything transient: transport failures, timeouts,
+                   HTTP 5xx, throttling, and malformed response bodies.
+                   The coordinator turns it into `UpdateFailed` (or
+                   `ConfigEntryNotReady` during setup), both of which
+                   retry automatically without bothering the user.
+
+Getting this split wrong is expensive in the reauth direction: mapping a
+network blip to `OAuthError` means one router hiccup at token-refresh
+time permanently stops the integration until the user re-enters their
+password.
+
 Why not `async-oauthlib`?
   We previously pulled it in through `milasdk`. For a single grant type
   with a public client, the standard form-encoded POST in aiohttp is
@@ -21,13 +40,15 @@ Why not `async-oauthlib`?
 """
 from __future__ import annotations
 
+import asyncio
+import json
 import logging
 import time
 from typing import Any, Dict
 
-from aiohttp import ClientError, ClientSession
+from aiohttp import ClientError, ClientSession, ClientTimeout
 
-from .exceptions import OAuthError
+from .exceptions import MilaError, OAuthError
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -41,6 +62,16 @@ CLIENT_ID = "prod-ui"
 # The realm rejects comma-separated scope lists, so we keep this
 # space-separated and matching what the mobile app sends.
 SCOPE = "email profile"
+
+# Hard cap on how long one token-endpoint request may take. Without an
+# explicit timeout a hung TCP connection would block for aiohttp's
+# 5-minute default, freezing whatever coordinator refresh or service
+# call was waiting on the token.
+TOKEN_REQUEST_TIMEOUT = ClientTimeout(total=30)
+
+# HTTP statuses that mean "the grant itself was rejected". Anything else
+# non-200 (5xx, 429, gateway weirdness) is treated as transient.
+_REJECTED_STATUSES = (400, 401, 403)
 
 # We pretend the token expires this many seconds early to avoid sending a
 # request with a token that's about to be rejected by the server clock.
@@ -74,6 +105,79 @@ def _annotate_expiry(token: Dict[str, Any]) -> Dict[str, Any]:
     return token
 
 
+async def _post_token_request(
+    session: ClientSession, data: Dict[str, str], context: str
+) -> Dict[str, Any]:
+    """POST one grant to the token endpoint and classify every outcome.
+
+    Shared by `request_token` and `refresh_token` so the classification
+    rules (see the module docstring) live in exactly one place.
+
+    Args:
+        session: aiohttp client session (shared with Home Assistant).
+        data: the form-encoded grant payload.
+        context: short label ("Token request" / "Token refresh") used to
+            prefix error messages so logs say which grant failed.
+
+    Returns:
+        The decoded token dict, annotated with absolute expiry stamps.
+
+    Raises:
+        OAuthError: the server rejected the grant (HTTP 400/401/403).
+        MilaError: transport failure, timeout, HTTP 5xx / throttling, or
+            a malformed response body. All safe to retry automatically.
+    """
+    try:
+        async with session.post(
+            TOKEN_ENDPOINT, data=data, timeout=TOKEN_REQUEST_TIMEOUT
+        ) as resp:
+            status = resp.status
+            # Read the body as text first: Keycloak itself always sends
+            # JSON, but a reverse proxy or captive portal in front of it
+            # can return an HTML error page. Parsing from text keeps the
+            # raw body available for the error message either way.
+            # errors="replace" so undecodable bytes flow into the JSON
+            # guard below (transient) instead of escaping this function
+            # as an unclassified UnicodeDecodeError, which downstream
+            # code would misread as an auth failure.
+            text = await resp.text(errors="replace")
+            try:
+                body = json.loads(text)
+            except ValueError:
+                # Non-JSON body. Keycloak never produces this, so we're
+                # looking at infrastructure between us and the server.
+                # That's transient, not a credential problem.
+                raise MilaError(
+                    f"{context} returned non-JSON (HTTP {status}): {text[:200]}"
+                )
+
+            if status == 200 and "access_token" in body:
+                return _annotate_expiry(body)
+
+            # Surface the most helpful field available: usually
+            # error_description ("Invalid user credentials"), falling
+            # back to error code, then the raw body.
+            detail = body.get("error_description") or body.get("error") or body
+
+            if status in _REJECTED_STATUSES:
+                # The auth server actively refused the grant: wrong
+                # password, revoked or expired refresh token, disabled
+                # account. Retrying can't help; the user must act.
+                raise OAuthError(f"{context} rejected (HTTP {status}): {detail}")
+
+            # Everything else: 5xx during Keycloak maintenance, 429
+            # throttling, or a 200 that inexplicably lacks a token.
+            # These heal on their own, so classify as transient.
+            raise MilaError(f"{context} failed (HTTP {status}): {detail}")
+    except (ClientError, asyncio.TimeoutError) as ex:
+        # Network-level failure (DNS, TLS, connection reset, timeout).
+        # This says nothing about whether the credentials are valid, so
+        # it must NOT become OAuthError: promoting a transient outage to
+        # a reauth prompt would permanently halt polling until the user
+        # manually re-enters a password that was never wrong.
+        raise MilaError(f"{context} transport error: {ex}") from ex
+
+
 async def request_token(
     session: ClientSession, username: str, password: str
 ) -> Dict[str, Any]:
@@ -97,8 +201,9 @@ async def request_token(
         The decoded token dict, annotated with absolute expiry stamps.
 
     Raises:
-        OAuthError: the server rejected the credentials, the response
-            body was missing `access_token`, or the transport failed.
+        OAuthError: the server rejected the credentials.
+        MilaError: transient failure (network, timeout, 5xx, malformed
+            body); safe to retry automatically.
     """
     # Standard "Resource Owner Password Credentials" payload per RFC 6749
     # section 4.3. We include `client_id` because Mila's Keycloak is
@@ -110,29 +215,7 @@ async def request_token(
         "password": password,
         "scope": SCOPE,
     }
-    try:
-        async with session.post(TOKEN_ENDPOINT, data=data) as resp:
-            # Keycloak returns JSON even on errors, with `error` and
-            # `error_description` fields. `content_type=None` tells
-            # aiohttp not to validate the response content-type header
-            # (some 4xx responses come back without it).
-            body = await resp.json(content_type=None)
-            if resp.status != 200 or "access_token" not in body:
-                # Surface the most helpful field available: usually
-                # error_description ("Invalid user credentials"), falling
-                # back to error code, then the raw body.
-                raise OAuthError(
-                    f"Token request failed (HTTP {resp.status}): "
-                    f"{body.get('error_description') or body.get('error') or body}"
-                )
-            return _annotate_expiry(body)
-    except ClientError as ex:
-        # Network-level failure (DNS, TLS, connection reset). Treat as an
-        # auth problem rather than a transient API error, because we
-        # can't distinguish between "wrong credentials" and "auth server
-        # unreachable" from this layer alone, and the user-visible
-        # behaviour (please retry / reauth) is the same.
-        raise OAuthError(f"Token request transport error: {ex}") from ex
+    return await _post_token_request(session, data, "Token request")
 
 
 async def refresh_token(session: ClientSession, refresh: str) -> Dict[str, Any]:
@@ -152,22 +235,13 @@ async def refresh_token(session: ClientSession, refresh: str) -> Dict[str, Any]:
 
     Raises:
         OAuthError: the refresh token was rejected (revoked, expired,
-            or otherwise invalid), the response was malformed, or the
-            transport failed.
+            or otherwise invalid).
+        MilaError: transient failure (network, timeout, 5xx, malformed
+            body); safe to retry automatically.
     """
     data = {
         "grant_type": "refresh_token",
         "client_id": CLIENT_ID,
         "refresh_token": refresh,
     }
-    try:
-        async with session.post(TOKEN_ENDPOINT, data=data) as resp:
-            body = await resp.json(content_type=None)
-            if resp.status != 200 or "access_token" not in body:
-                raise OAuthError(
-                    f"Token refresh failed (HTTP {resp.status}): "
-                    f"{body.get('error_description') or body.get('error') or body}"
-                )
-            return _annotate_expiry(body)
-    except ClientError as ex:
-        raise OAuthError(f"Token refresh transport error: {ex}") from ex
+    return await _post_token_request(session, data, "Token refresh")

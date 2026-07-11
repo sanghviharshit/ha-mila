@@ -17,13 +17,14 @@
       }      
     },
     "error": {
-      "invalid_auth": "Invalid login",      
+      "invalid_auth": "Invalid login",
       "cannot_connect": "Cannot connect",
-      "unknown": "Unknown error occured"
+      "unknown": "Unknown error occurred"
     },
     "abort": {
       "already_configured": "Account already configured",
-      "reauth_successful": "Reauthentication was successful!"
+      "reauth_successful": "Reauthentication was successful!",
+      "unknown": "Unexpected error"
     }
   },
   "options": {
