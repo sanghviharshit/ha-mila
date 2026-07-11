@@ -1,3 +1,11 @@
 
 .DS_Store
 __pycache__
+
+# Local probe credentials (never commit)
+.credentials
+.credentials.local
+*.token.json
+
+# Local probe scripts and any captured probe payloads (never commit)
+scripts/

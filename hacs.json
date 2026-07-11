@@ -1,5 +1,5 @@
 {
-  "domains": ["air_quality", "switch", "sensor", "fan"],
   "name": "HA-Mila",
-  "render_readme": true
+  "render_readme": true,
+  "homeassistant": "2024.8.0"
 }
