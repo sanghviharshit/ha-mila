@@ -29,9 +29,10 @@ class MilaApplianceMeasurementSensor(MilaApplianceSensor):
 
     @property
     def native_value(self):
-        sensors: List = self.device.get_value("sensors")
+        sensors: List = self.device.get_value("sensors") or []
         sensor = next((i for i in sensors if i["kind"] == self._sensor_kind), None)
-        if sensor:
-            value = sensor["latest"]["value"]
-            return value * self._uom_conversion_factor if self._uom_conversion_factor else value
-        return None
+        latest = sensor.get("latest") if sensor else None
+        value = latest.get("value") if latest else None
+        if value is None:
+            return None
+        return value * self._uom_conversion_factor if self._uom_conversion_factor else value
