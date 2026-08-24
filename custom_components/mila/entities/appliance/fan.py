@@ -56,9 +56,10 @@ class MilaApplianceFan(MilaFan):
 
     @property
     def speed(self) -> float:
-        sensors: List = self.device.get_value("sensors")
+        sensors: List = self.device.get_value("sensors") or []
         sensor = next((i for i in sensors if i["kind"] == ApplianceSensorKind.FanSpeed), None)
-        return sensor["latest"]["value"] if sensor else None
+        latest = sensor.get("latest") if sensor else None
+        return latest.get("value") if latest else None
 
     @property
     def current_mode(self) -> ApplianceMode:
