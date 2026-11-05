@@ -1,5 +1,6 @@
 """Milacares API"""
 
+import asyncio
 import logging
 from typing import List, Optional
 from benedict import benedict
@@ -66,12 +67,14 @@ class MilaAppliance(MilaDevice):
         else:
             await self._api.set_manual_mode(self.room_id, 10)
         await self._api.force_room_data(self.room_id)
+        await asyncio.sleep(1)
         await self._coordinator.async_request_refresh()
 
     async def set_fan_speed(self, percentage: Optional[int]):
         api_speed = None if (percentage is None or percentage == 0) else percentage
         await self._api.set_manual_mode(self.room_id, api_speed)
         await self._api.force_room_data(self.room_id)
+        await asyncio.sleep(1)
         await self._coordinator.async_request_refresh()
 
     def _get_all_entities(self) -> List[Entity]:

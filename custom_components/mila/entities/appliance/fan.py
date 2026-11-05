@@ -42,6 +42,7 @@ class MilaApplianceFan(MilaFan):
         )
         self._speed_count = 10
         self._percentage_override: Optional[float] = None
+        self._preset_mode_override: Optional[str] = None
 
         self.device.add_update_listener(self._update_listener)
 
@@ -70,6 +71,10 @@ class MilaApplianceFan(MilaFan):
         """Return true if the entity is on."""
         if self._percentage_override is not None:
             return self._percentage_override > 0
+        if self._preset_mode_override is not None:
+            return True
+        if self.current_mode is not None and self.current_mode != ApplianceMode.Manual:
+            return True
         return self.speed is not None and self.speed > 0
 
     @property
@@ -104,9 +109,21 @@ class MilaApplianceFan(MilaFan):
         return self._speed_count
 
     @property
-    def preset_mode(self):
+    def preset_mode(self) -> Optional[str]:
         """Get the active preset mode."""
+        if self._preset_mode_override is not None:
+            return self._preset_mode_override
         return PRESET_MODE_MANUAL if self.current_mode == ApplianceMode.Manual else PRESET_MODE_AUTOMAGIC
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        """Return optional state attributes."""
+        attrs = {}
+        if self.speed is not None:
+            attrs["current_rpm"] = self.speed
+        if self.current_mode is not None:
+            attrs["actual_mode"] = str(self.current_mode)
+        return attrs
 
     async def async_turn_on(
         self,
@@ -129,6 +146,7 @@ class MilaApplianceFan(MilaFan):
             await self.async_set_preset_mode(PRESET_MODE_MANUAL)
         await self.device.set_fan_speed(None)
         self._percentage_override = 0
+        self._preset_mode_override = PRESET_MODE_MANUAL
         self.async_write_ha_state()
 
     async def async_set_percentage(self, percentage: int) -> None:
@@ -149,19 +167,24 @@ class MilaApplianceFan(MilaFan):
             return
 
         _LOGGER.info(f"Setting the fan mode to {preset_mode} speed")
-        await self.device.set_fan_mode(preset_mode)
-                
+        self._preset_mode_override = preset_mode
         if preset_mode == PRESET_MODE_AUTOMAGIC:
             self._percentage_override = None
         self.async_write_ha_state()
 
+        await self.device.set_fan_mode(preset_mode)
+
     def _update_listener(self) -> None:
-        if self._percentage_override is None:
-            return
-        if self._percentage_override == 0:
-            if self.speed is not None and self.speed <= 0:
+        if self._preset_mode_override is not None:
+            actual_preset = PRESET_MODE_MANUAL if self.current_mode == ApplianceMode.Manual else PRESET_MODE_AUTOMAGIC
+            if self._preset_mode_override == actual_preset:
+                self._preset_mode_override = None
+
+        if self._percentage_override is not None:
+            if self._percentage_override == 0:
+                if self.speed is not None and self.speed <= 0:
+                    self._percentage_override = None
+                    self.async_write_ha_state()
+            elif self.percentage is not None and abs(self.percentage - self._percentage_override) < 10:
                 self._percentage_override = None
                 self.async_write_ha_state()
-        elif self.percentage is not None and abs(self.percentage - self._percentage_override) < 10:
-            self._percentage_override = None
-            self.async_write_ha_state()
