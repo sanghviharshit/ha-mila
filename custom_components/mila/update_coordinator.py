@@ -10,8 +10,9 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_SCAN_INTERVAL, CONF_TIMEOUT
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryAuthFailed
+from homeassistant.helpers import aiohttp_client
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
-from milasdk import MilaApi, MilaError, OAuthError
+from milasdk import API_BASE_URL, MilaApi, MilaError, OAuthError
 
 from .auth import MilaConfigEntryAuth, MilaOauthImplementation
 from .const import (
@@ -106,7 +107,14 @@ class MilaUpdateCoordinator(DataUpdateCoordinator):
                     data[DATAKEY_ACCOUNT] = await self._api.get_account()
 
             async with async_timeout.timeout(self._timeout):
-                data[DATAKEY_APPLIANCE] = {x["id"]: x for x in await self._api.get_appliances()}
+                appliances = await self._api.get_appliances()
+                perf_configs = await self._async_get_performance_configs()
+                for app in appliances:
+                    app_id = app.get("id")
+                    if app_id in perf_configs:
+                        if "room" in app and isinstance(app["room"], dict):
+                            app["room"]["performanceConfig"] = perf_configs[app_id]
+                data[DATAKEY_APPLIANCE] = {x["id"]: x for x in appliances}
             async with async_timeout.timeout(self._timeout):
                 data[DATAKEY_LOCATION] = {f"loc_{x['id']}": x for x in await self._api.get_location_data()}
 
@@ -137,3 +145,83 @@ class MilaUpdateCoordinator(DataUpdateCoordinator):
             _LOGGER.info(
                 f"New device with id={id} detected, reload the Mila integration if you want to access it in Home Assistant"
             )
+
+    async def _async_get_performance_configs(self) -> dict[str, dict]:
+        try:
+            token = await self._auth.async_get_access_token()
+            session = aiohttp_client.async_get_clientsession(self._hass)
+            query = """
+            query GetPerformanceConfigs {
+              owner {
+                appliances {
+                  id
+                  room {
+                    id
+                    performanceConfig {
+                      mode
+                      profile
+                      fanSpeed
+                    }
+                  }
+                }
+              }
+            }
+            """
+            async with session.post(
+                API_BASE_URL,
+                json={"query": query},
+                headers={"Authorization": f"Bearer {token}"}
+            ) as resp:
+                data = await resp.json()
+                appliances = data.get("data", {}).get("owner", {}).get("appliances", [])
+                configs = {}
+                for app in appliances:
+                    app_id = app.get("id")
+                    perf = app.get("room", {}).get("performanceConfig")
+                    if app_id and perf:
+                        configs[app_id] = perf
+                return configs
+        except Exception as ex:
+            _LOGGER.warning(f"Failed to fetch performance configs: {ex}")
+            return {}
+
+    async def async_set_room_performance_config(
+        self,
+        room_id: str,
+        profile: str,
+        mode: str = "Automatic",
+        fan_speed: str = "TurnedOff"
+    ):
+        token = await self._auth.async_get_access_token()
+        session = aiohttp_client.async_get_clientsession(self._hass)
+        query = """
+        mutation ApplyConfig($input: ApplyRoomPerformanceConfigInput!) {
+          applyRoomPerformanceConfig(input: $input) {
+            room {
+              id
+              performanceConfig {
+                mode
+                profile
+                fanSpeed
+              }
+            }
+          }
+        }
+        """
+        variables = {
+            "input": {
+                "roomId": str(room_id),
+                "mode": mode,
+                "profile": profile,
+                "fanSpeed": fan_speed
+            }
+        }
+        async with session.post(
+            API_BASE_URL,
+            json={"query": query, "variables": variables},
+            headers={"Authorization": f"Bearer {token}"}
+        ) as resp:
+            data = await resp.json()
+            if "errors" in data:
+                raise MilaError(f"Failed to apply room performance config: {data['errors']}")
+            return data.get("data", {}).get("applyRoomPerformanceConfig", {}).get("room")

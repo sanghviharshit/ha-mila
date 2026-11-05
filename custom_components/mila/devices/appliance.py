@@ -77,6 +77,19 @@ class MilaAppliance(MilaDevice):
         await asyncio.sleep(1)
         await self._coordinator.async_request_refresh()
 
+    async def set_room_goal(self, profile: str):
+        current_mode = self.get_value("room.performanceConfig.mode", "Automatic") or "Automatic"
+        current_speed = self.get_value("room.performanceConfig.fanSpeed", "TurnedOff") or "TurnedOff"
+        await self._coordinator.async_set_room_performance_config(
+            self.room_id,
+            profile,
+            mode=current_mode,
+            fan_speed=current_speed
+        )
+        await self._api.force_room_data(self.room_id)
+        await asyncio.sleep(1)
+        await self._coordinator.async_request_refresh()
+
     def _get_all_entities(self) -> List[Entity]:
         #deal with circular imports by bringing in the sensors here
         from ..entities import (
@@ -85,6 +98,7 @@ class MilaAppliance(MilaDevice):
             #MilaSmartModeSwitch,
             MilaApplianceFan,
             MilaSoundModeSelect,
+            MilaRoomGoalSelect,
             TVOC_PPB_TO_UGM3
         )
         entities = [
@@ -122,7 +136,8 @@ class MilaAppliance(MilaDevice):
             #MilaSmartModeSwitch(self, SmartModeKind.Whitenoise, SmartModeKind.Whitenoise, "mdi:waveform"),
 
             MilaApplianceFan(self),
-            MilaSoundModeSelect(self)
+            MilaSoundModeSelect(self),
+            MilaRoomGoalSelect(self)
         ]
 
         return entities

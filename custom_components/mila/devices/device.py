@@ -81,8 +81,11 @@ class MilaDevice():
     def _device_data(self) -> benedict:
         raise NotImplementedError
 
-    def get_value(self, data_path: str):
-        return self._device_data[data_path]
+    def get_value(self, data_path: str, default=None):
+        try:
+            return self._device_data.get(data_path, default)
+        except (KeyError, TypeError):
+            return default
 
     def add_update_listener(self, callback: CALLBACK_TYPE):
         self._coordinator.async_add_listener(callback)
