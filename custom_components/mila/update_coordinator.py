@@ -225,3 +225,32 @@ class MilaUpdateCoordinator(DataUpdateCoordinator):
             if "errors" in data:
                 raise MilaError(f"Failed to apply room performance config: {data['errors']}")
             return data.get("data", {}).get("applyRoomPerformanceConfig", {}).get("room")
+
+    async def async_set_room_sounds_config(
+        self,
+        room_id: str,
+        sounds_config: str
+    ):
+        token = await self._auth.async_get_access_token()
+        session = aiohttp_client.async_get_clientsession(self._hass)
+        query = """
+        mutation ApplySounds($roomId: ID!, $soundsConfig: SoundsConfig!) {
+          applyRoomSoundsConfig(roomId: $roomId, soundsConfig: $soundsConfig) {
+            id
+            soundsConfig
+          }
+        }
+        """
+        variables = {
+            "roomId": str(room_id),
+            "soundsConfig": str(sounds_config)
+        }
+        async with session.post(
+            API_BASE_URL,
+            json={"query": query, "variables": variables},
+            headers={"Authorization": f"Bearer {token}"}
+        ) as resp:
+            data = await resp.json()
+            if "errors" in data:
+                raise MilaError(f"Failed to apply room sounds config: {data['errors']}")
+            return data.get("data", {}).get("applyRoomSoundsConfig")

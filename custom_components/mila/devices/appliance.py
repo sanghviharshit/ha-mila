@@ -2,7 +2,7 @@
 
 import asyncio
 import logging
-from typing import List, Optional
+from typing import Any, List, Optional
 from benedict import benedict
 from homeassistant.const import (
     UnitOfTemperature,
@@ -57,8 +57,11 @@ class MilaAppliance(MilaDevice):
         await self._api.set_smart_mode(self.id, mode, is_enabled)
         await self._coordinator.async_request_refresh()
 
-    async def set_sound_mode(self, mode: SoundsConfig):
-        await self._api.set_sound_mode(self.id, mode)
+    async def set_sound_mode(self, mode: Any):
+        mode_val = getattr(mode, "value", str(mode))
+        await self._coordinator.async_set_room_sounds_config(self.room_id, mode_val)
+        await self._api.force_room_data(self.room_id)
+        await asyncio.sleep(1)
         await self._coordinator.async_request_refresh()
 
     async def set_fan_mode(self, mode: str):
