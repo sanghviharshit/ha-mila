@@ -64,11 +64,16 @@ class MilaAppliance(MilaDevice):
         await asyncio.sleep(1)
         await self._coordinator.async_request_refresh()
 
-    async def set_fan_mode(self, mode: str):
+    async def set_fan_mode(self, mode: str, speed: Optional[int] = None):
+        from ..entities.appliance.const import ROOM_GOAL_TO_PROFILE
         if mode == "Automagic":
             await self._api.set_automagic_mode(self.room_id)
+        elif mode in ROOM_GOAL_TO_PROFILE:
+            await self.set_room_goal(ROOM_GOAL_TO_PROFILE[mode])
+            return
         else:
-            await self._api.set_manual_mode(self.room_id, 10)
+            default_speed = speed or 10
+            await self._api.set_manual_mode(self.room_id, default_speed)
         await self._api.force_room_data(self.room_id)
         await asyncio.sleep(1)
         await self._coordinator.async_request_refresh()
@@ -81,14 +86,19 @@ class MilaAppliance(MilaDevice):
         await self._coordinator.async_request_refresh()
 
     async def set_room_goal(self, profile: str):
-        current_mode = self.get_value("room.performanceConfig.mode", "Automatic") or "Automatic"
         current_speed = self.get_value("room.performanceConfig.fanSpeed", "TurnedOff") or "TurnedOff"
+        if "room" in self._device_data and isinstance(self._device_data["room"], dict):
+            if "performanceConfig" not in self._device_data["room"] or not isinstance(self._device_data["room"]["performanceConfig"], dict):
+                self._device_data["room"]["performanceConfig"] = {}
+            self._device_data["room"]["performanceConfig"]["profile"] = profile
+            self._device_data["room"]["performanceConfig"]["mode"] = "Automatic"
         await self._coordinator.async_set_room_performance_config(
             self.room_id,
             profile,
-            mode=current_mode,
+            mode="Automatic",
             fan_speed=current_speed
         )
+        await self._api.set_automagic_mode(self.room_id)
         await self._api.force_room_data(self.room_id)
         await asyncio.sleep(1)
         await self._coordinator.async_request_refresh()
@@ -101,7 +111,6 @@ class MilaAppliance(MilaDevice):
             #MilaSmartModeSwitch,
             MilaApplianceFan,
             MilaSoundModeSelect,
-            MilaRoomGoalSelect,
             TVOC_PPB_TO_UGM3
         )
         entities = [
@@ -139,8 +148,7 @@ class MilaAppliance(MilaDevice):
             #MilaSmartModeSwitch(self, SmartModeKind.Whitenoise, SmartModeKind.Whitenoise, "mdi:waveform"),
 
             MilaApplianceFan(self),
-            MilaSoundModeSelect(self),
-            MilaRoomGoalSelect(self)
+            MilaSoundModeSelect(self)
         ]
 
         return entities

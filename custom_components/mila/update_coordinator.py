@@ -194,31 +194,28 @@ class MilaUpdateCoordinator(DataUpdateCoordinator):
     ):
         token = await self._auth.async_get_access_token()
         session = aiohttp_client.async_get_clientsession(self._hass)
-        query = """
-        mutation ApplyConfig($input: ApplyRoomPerformanceConfigInput!) {
-          applyRoomPerformanceConfig(input: $input) {
-            room {
+        query = f"""
+        mutation {{
+          applyRoomPerformanceConfig(input: {{
+            roomId: "{room_id}",
+            mode: {mode},
+            profile: {profile},
+            fanSpeed: {fan_speed}
+          }}) {{
+            room {{
               id
-              performanceConfig {
+              performanceConfig {{
                 mode
                 profile
                 fanSpeed
-              }
-            }
-          }
-        }
+              }}
+            }}
+          }}
+        }}
         """
-        variables = {
-            "input": {
-                "roomId": str(room_id),
-                "mode": mode,
-                "profile": profile,
-                "fanSpeed": fan_speed
-            }
-        }
         async with session.post(
             API_BASE_URL,
-            json={"query": query, "variables": variables},
+            json={"query": query},
             headers={"Authorization": f"Bearer {token}"}
         ) as resp:
             data = await resp.json()
