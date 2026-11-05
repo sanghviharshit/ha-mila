@@ -65,10 +65,12 @@ class MilaAppliance(MilaDevice):
             await self._api.set_automagic_mode(self.room_id)
         else:
             await self._api.set_manual_mode(self.room_id, 10)
+        await self._api.force_room_data(self.room_id)
         await self._coordinator.async_request_refresh()
 
     async def set_fan_speed(self, percentage: Optional[int]):
-        await self._api.set_manual_mode(self.room_id, percentage)
+        api_speed = None if (percentage is None or percentage == 0) else percentage
+        await self._api.set_manual_mode(self.room_id, api_speed)
         await self._api.force_room_data(self.room_id)
         await self._coordinator.async_request_refresh()
 
