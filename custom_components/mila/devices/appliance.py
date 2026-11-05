@@ -67,7 +67,9 @@ class MilaAppliance(MilaDevice):
     async def set_fan_mode(self, mode: str, speed: Optional[int] = None):
         from ..entities.appliance.const import ROOM_GOAL_TO_PROFILE
         if mode == "Automagic":
-            await self._api.set_automagic_mode(self.room_id)
+            current_profile = self.get_value("room.performanceConfig.profile", "Normal") or "Normal"
+            await self.set_room_goal(current_profile)
+            return
         elif mode in ROOM_GOAL_TO_PROFILE:
             await self.set_room_goal(ROOM_GOAL_TO_PROFILE[mode])
             return
@@ -98,7 +100,6 @@ class MilaAppliance(MilaDevice):
             mode="Automatic",
             fan_speed=current_speed
         )
-        await self._api.set_automagic_mode(self.room_id)
         await self._api.force_room_data(self.room_id)
         await asyncio.sleep(1)
         await self._coordinator.async_request_refresh()
