@@ -35,7 +35,10 @@ class MilaSmartModeSwitch(MilaSwitch):
     def is_on(self) -> bool:
         try:
             modes: dict[str, Any] = self.device.get_value("smartModes")
-            return modes[MODE_MAPPING[self._smartmode_kind]]["isEnabled"]
+            key = MODE_MAPPING.get(self._smartmode_kind, str(self._smartmode_kind).lower())
+            if modes and key in modes and isinstance(modes[key], dict):
+                return bool(modes[key].get("isEnabled", False))
+            return False
         except Exception as ex:
             _LOGGER.error(f"Error getting switch state for {self.name}", exc_info=ex)
             return None
