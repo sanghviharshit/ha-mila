@@ -57,7 +57,19 @@ class MilaAppliance(MilaDevice):
         await self._coordinator.async_request_refresh()
 
     async def set_sound_mode(self, mode: SoundsConfig):
-        await self._api.set_sound_mode(self.id, mode)
+        from gql import gql, Client
+        mutation = gql("""
+            mutation ApplyRoomSoundsConfig($roomId: ID!, $soundsConfig: SoundsConfig!) {
+                applyRoomSoundsConfig(roomId: $roomId, soundsConfig: $soundsConfig) {
+                    id
+                    soundsConfig
+                }
+            }
+        """)
+        mode_val = mode.value if hasattr(mode, "value") else str(mode)
+        raw_client = Client(transport=self._api._transport)
+        async with raw_client as session:
+            await session.execute(mutation, variable_values={"roomId": str(self.room_id), "soundsConfig": mode_val})
         await self._coordinator.async_request_refresh()
 
     async def set_fan_mode(self, mode: str):
