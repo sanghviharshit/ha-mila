@@ -53,7 +53,44 @@ class MilaAppliance(MilaDevice):
         return self._appliance_data[self.id]
 
     async def set_smart_mode(self, mode: SmartModeKind, is_enabled: bool):
-        await self._api.set_smart_mode(self.id, mode, is_enabled)
+        from gql import gql, Client
+
+        mode_str = mode.value if hasattr(mode, "value") else str(mode)
+        mutations = {
+            "Quiet": (
+                "mutation ApplyRoomQuietMode($roomId: ID!, $isEnabled: Boolean!) { applyRoomQuietMode(roomId: $roomId, isEnabled: $isEnabled) { id } }",
+                {"roomId": str(self.room_id), "isEnabled": is_enabled},
+            ),
+            "Housekeeper": (
+                "mutation ApplyRoomHousekeeperMode($roomId: ID!, $isEnabled: Boolean!) { applyRoomHousekeeperMode(roomId: $roomId, isEnabled: $isEnabled) { id } }",
+                {"roomId": str(self.room_id), "isEnabled": is_enabled},
+            ),
+            "ChildLock": (
+                "mutation ApplyRoomChildLockMode($roomId: ID!, $isEnabled: Boolean!) { applyRoomChildLockMode(roomId: $roomId, isEnabled: $isEnabled) { id } }",
+                {"roomId": str(self.room_id), "isEnabled": is_enabled},
+            ),
+            "Sleep": (
+                "mutation ApplyRoomSleepMode($roomId: ID!, $isEnabled: Boolean!, $fanMode: FanMode!) { applyRoomSleepMode(roomId: $roomId, isEnabled: $isEnabled, fanMode: $fanMode) { id } }",
+                {"roomId": str(self.room_id), "isEnabled": is_enabled, "fanMode": "Medium"},
+            ),
+            "Turndown": (
+                "mutation ApplyRoomTurndownMode($roomId: ID!, $isEnabled: Boolean!, $fanMode: FanMode!) { applyRoomTurndownMode(roomId: $roomId, isEnabled: $isEnabled, fanMode: $fanMode) { id } }",
+                {"roomId": str(self.room_id), "isEnabled": is_enabled, "fanMode": "Medium"},
+            ),
+            "Whitenoise": (
+                "mutation ApplyRoomWhitenoiseMode($roomId: ID!, $isEnabled: Boolean!, $fanMode: FanMode!) { applyRoomWhitenoiseMode(roomId: $roomId, isEnabled: $isEnabled, fanMode: $fanMode) { id } }",
+                {"roomId": str(self.room_id), "isEnabled": is_enabled, "fanMode": "Medium"},
+            ),
+        }
+
+        if mode_str not in mutations:
+            _LOGGER.warning("Unsupported smart mode: %s", mode_str)
+            return
+
+        query_str, variables = mutations[mode_str]
+        raw_client = Client(transport=self._api._transport)
+        async with raw_client as session:
+            await session.execute(gql(query_str), variable_values=variables)
         await self._coordinator.async_request_refresh()
 
     async def set_sound_mode(self, mode: SoundsConfig):
@@ -77,7 +114,7 @@ class MilaAppliance(MilaDevice):
         from ..entities import (
             MilaAppliancePathSensor, 
             MilaApplianceMeasurementSensor, 
-            #MilaSmartModeSwitch,
+            MilaSmartModeSwitch,
             MilaApplianceFan,
             MilaSoundModeSelect,
             TVOC_PPB_TO_UGM3
@@ -107,14 +144,12 @@ class MilaAppliance(MilaDevice):
             MilaApplianceMeasurementSensor(self, "VOC", ApplianceSensorKind.Voc, device_class=SensorDeviceClass.VOLATILE_ORGANIC_COMPOUNDS, uom=CONCENTRATION_MICROGRAMS_PER_CUBIC_METER, uom_conversion_factor=TVOC_PPB_TO_UGM3),
             MilaApplianceMeasurementSensor(self, "Temperature", ApplianceSensorKind.Temperature, uom=UnitOfTemperature.CELSIUS, device_class=SensorDeviceClass.TEMPERATURE, precision=1),
 
-            #MilaSmartModeSwitch(self, SmartModeKind.Quiet, SmartModeKind.Quiet, "mdi:ear-hearing-off"),
-            #MilaSmartModeSwitch(self, SmartModeKind.Quarantine, SmartModeKind.Quarantine, "mdi:virus"),
-            #MilaSmartModeSwitch(self, "Child Lock", SmartModeKind.ChildLock, "mdi:lock"),
-            #MilaSmartModeSwitch(self, SmartModeKind.Housekeeper, SmartModeKind.Housekeeper, "mdi:broom"),
-            #MilaSmartModeSwitch(self, "Power Saver", SmartModeKind.PowerSaver, "mdi:power"),
-            #MilaSmartModeSwitch(self, SmartModeKind.Sleep, SmartModeKind.Sleep, "mdi:sleep"),
-            #MilaSmartModeSwitch(self, SmartModeKind.Turndown, SmartModeKind.Turndown, "mdi:bed"),
-            #MilaSmartModeSwitch(self, SmartModeKind.Whitenoise, SmartModeKind.Whitenoise, "mdi:waveform"),
+            MilaSmartModeSwitch(self, SmartModeKind.Quiet, SmartModeKind.Quiet, "mdi:ear-hearing-off"),
+            MilaSmartModeSwitch(self, "Child Lock", SmartModeKind.ChildLock, "mdi:lock"),
+            MilaSmartModeSwitch(self, SmartModeKind.Housekeeper, SmartModeKind.Housekeeper, "mdi:broom"),
+            MilaSmartModeSwitch(self, SmartModeKind.Sleep, SmartModeKind.Sleep, "mdi:sleep"),
+            MilaSmartModeSwitch(self, SmartModeKind.Turndown, SmartModeKind.Turndown, "mdi:bed"),
+            MilaSmartModeSwitch(self, SmartModeKind.Whitenoise, SmartModeKind.Whitenoise, "mdi:waveform"),
 
             MilaApplianceFan(self),
             MilaSoundModeSelect(self)

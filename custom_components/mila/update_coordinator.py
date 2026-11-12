@@ -110,6 +110,44 @@ class MilaUpdateCoordinator(DataUpdateCoordinator):
             async with async_timeout.timeout(self._timeout):
                 data[DATAKEY_LOCATION] = {f"loc_{x['id']}": x for x in await self._api.get_location_data()}
 
+            # Fetch room smart modes and attach to appliance data
+            try:
+                from gql import gql, Client
+                query = gql("""
+                    query GetRoomSmartModes {
+                        owner {
+                            locations {
+                                rooms {
+                                    id
+                                    smartModes {
+                                        quiet { isEnabled }
+                                        housekeeper { isEnabled }
+                                        childLock { isEnabled }
+                                        sleep { isEnabled fanMode }
+                                        turndown { isEnabled fanMode }
+                                        whitenoise { isEnabled fanMode }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                """)
+                raw_client = Client(transport=self._api._transport)
+                async with raw_client as session:
+                    res = await session.execute(query)
+                room_modes = {}
+                for loc in res.get("owner", {}).get("locations", []):
+                    for r in loc.get("rooms", []):
+                        room_modes[str(r["id"])] = r.get("smartModes", {})
+                for app in data[DATAKEY_APPLIANCE].values():
+                    r_id = str(app.get("room", {}).get("id"))
+                    if r_id in room_modes:
+                        app["smartModes"] = room_modes[r_id]
+                        if "room" in app and isinstance(app["room"], dict):
+                            app["room"]["smartModes"] = room_modes[r_id]
+            except Exception as ex:
+                _LOGGER.warning("Could not fetch room smartModes: %s", ex)
+
             #build the device list if needed
             if not self._initialized:
                 await self._build_devices(data)
